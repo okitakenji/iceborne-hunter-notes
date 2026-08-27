@@ -822,6 +822,8 @@ button,.btn,.icon-btn{
           <div class="brandsub">野良で出会ったハンターを記録して、次の遭遇に備える</div>
         </div>
       </div>
+      <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;justify-content:flex-end">
+        <div class="pill good" id="syncStatus">共有DB 接続中</div>
       <button type="button" class="icon-btn" id="openSettings" aria-label="設定を開く">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
           <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/>
@@ -829,6 +831,7 @@ button,.btn,.icon-btn{
         </svg>
         設定
       </button>
+      </div>
     </header>
 
     <section class="hero">
@@ -896,7 +899,7 @@ button,.btn,.icon-btn{
             <button class="btn btn-primary" type="submit" id="saveBtn">登録する</button>
             <button class="btn" type="button" id="cancelEdit" hidden>編集をやめる</button>
           </div>
-          <p class="tiny">同じIDでも別レコードとして登録できます。</p>
+          <p class="tiny">同じIDでも別レコードとして登録できます。登録内容は共有DBに保存され、ほかの利用者にも反映されます。</p>
         </form>
       </section>
 
@@ -947,7 +950,7 @@ button,.btn,.icon-btn{
                 <th>状態</th>
                 <th>備考</th>
                 <th>登録日</th>
-                <th>操作</th>
+                <th>共有</th>
               </tr>
             </thead>
             <tbody id="hunterRows"></tbody>
@@ -961,7 +964,7 @@ button,.btn,.icon-btn{
             <button type="button" class="btn" id="importBtn">JSON読み込み</button>
             <input type="file" id="importFile" accept=".json,application/json" hidden>
           </div>
-          <button type="button" class="btn btn-danger" id="deleteAllBtn">全データ削除</button>
+          <button type="button" class="btn" id="deleteAllBtn" disabled title="共有DB版では削除権限をまだ有効にしていません">削除は現在無効</button>
         </div>
       </section>
     </main>
@@ -1042,7 +1045,8 @@ button,.btn,.icon-btn{
 
 <script>
 (() => {
-  const STORAGE_KEY = "iceborneHunterNotes_v1";
+  const SUPABASE_URL = "https://cxksmeunzabvjeneuvol.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_Z7djJbpsYnLONLHpywTyhA_U6_sSnuN";
   const BG_DB_NAME = "iceborneHunterNotesAssets";
   const BG_DB_STORE = "assets";
   const BG_DB_KEY = "background";
@@ -1073,6 +1077,7 @@ button,.btn,.icon-btn{
   const totalCount = $("totalCount");
   const filteredCount = $("filteredCount");
   const settingsCount = $("settingsCount");
+  const syncStatus = $("syncStatus");
 
   const bgLayer = $("bgLayer");
   const bgShade = $("bgShade");
@@ -1083,20 +1088,72 @@ button,.btn,.icon-btn{
   const bgDarknessValue = $("bgDarknessValue");
   const bgPreview = $("bgPreview");
 
-  let hunters = load();
+  let hunters = [];
+  let isLoadingHunters = false;
 
-  function load(){
+  function setSyncStatus(state, text){
+    syncStatus.textContent = text;
+    syncStatus.classList.remove("good","warn","bad");
+    if(state) syncStatus.classList.add(state);
+  }
+
+  async function loadHuntersFromCloud(silent=false){
+    if(isLoadingHunters) return;
+    isLoadingHunters = true;
+    if(!silent) setSyncStatus("warn","共有DB 同期中");
+
     try{
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const data = raw ? JSON.parse(raw) : [];
-      return Array.isArray(data) ? data : [];
-    }catch{
-      return [];
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/hunters?select=*&order=created_at.desc`, {
+        headers: { "apikey": SUPABASE_KEY },
+        cache: "no-store"
+      });
+
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const rows = await res.json();
+      hunters = rows.map(r => ({
+        key: String(r.id),
+        dbId: r.id,
+        name: r.hunter_name || "",
+        id: r.hunter_id || "",
+        reporter: r.reporter || "",
+        rating: Number(r.rating || 3),
+        status: r.status || "普通",
+        notes: r.notes || "",
+        createdAt: r.created_at || "",
+        createdDate: r.created_at ? new Date(r.created_at).toLocaleDateString("ja-JP") : ""
+      }));
+
+      render();
+      setSyncStatus("good","共有DB 接続済み");
+    }catch(err){
+      console.error(err);
+      setSyncStatus("bad","共有DB 接続エラー");
+      if(!silent){
+        alert("共有DBからデータを読み込めませんでした。Supabaseの設定を確認してください。");
+      }
+    }finally{
+      isLoadingHunters = false;
     }
   }
 
-  function save(){
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(hunters));
+  async function insertHunterToCloud(payload){
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/hunters`, {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if(!res.ok){
+      const msg = await res.text().catch(()=>"");
+      throw new Error(`HTTP ${res.status} ${msg}`);
+    }
+
+    return res.json().catch(()=>[]);
   }
 
   function esc(s){
@@ -1149,12 +1206,7 @@ button,.btn,.icon-btn{
         <td><span class="pill ${statusClass(h.status)}">${esc(h.status)}</span></td>
         <td class="note">${esc(h.notes || "—")}</td>
         <td class="muted">${esc(h.createdDate || "")}</td>
-        <td>
-          <div class="row-actions">
-            <button type="button" class="btn" data-action="edit" data-key="${esc(h.key)}">編集</button>
-            <button type="button" class="btn btn-danger" data-action="delete" data-key="${esc(h.key)}">削除</button>
-          </div>
-        </td>`;
+        <td><span class="pill">共有済み</span></td>`;
       rowsEl.appendChild(tr);
     }
   }
@@ -1169,77 +1221,37 @@ button,.btn,.icon-btn{
     cancelEdit.hidden = true;
   }
 
-  form.addEventListener("submit", e => {
+  form.addEventListener("submit", async e => {
     e.preventDefault();
 
     const name = nameEl.value.trim();
     const id = idEl.value.trim();
     if(!name || !id) return;
 
-    const existingKey = editKeyEl.value;
+    saveBtn.disabled = true;
+    saveBtn.textContent = "共有DBへ登録中…";
+    setSyncStatus("warn","共有DB 登録中");
 
-    if(existingKey){
-      const idx = hunters.findIndex(h => h.key === existingKey);
-      if(idx >= 0){
-        hunters[idx] = {
-          ...hunters[idx],
-          name,
-          id,
-          reporter:reporterEl.value.trim(),
-          rating:Number(ratingEl.value),
-          status:statusEl.value,
-          notes:notesEl.value.trim(),
-          updatedAt:new Date().toISOString()
-        };
-      }
-    }else{
-      const now = new Date();
-      hunters.push({
-        key: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random(),
-        name,
-        id,
-        reporter:reporterEl.value.trim(),
-        rating:Number(ratingEl.value),
-        status:statusEl.value,
-        notes:notesEl.value.trim(),
-        createdAt:now.toISOString(),
-        createdDate:now.toLocaleDateString("ja-JP"),
-        updatedAt:null
+    try{
+      await insertHunterToCloud({
+        hunter_name: name,
+        hunter_id: id,
+        reporter: reporterEl.value.trim(),
+        rating: Number(ratingEl.value),
+        status: statusEl.value,
+        notes: notesEl.value.trim()
       });
-    }
 
-    save();
-    resetForm();
-    render();
-  });
-
-  rowsEl.addEventListener("click", e => {
-    const btn = e.target.closest("button[data-action]");
-    if(!btn) return;
-
-    const h = hunters.find(x => x.key === btn.dataset.key);
-    if(!h) return;
-
-    if(btn.dataset.action === "delete"){
-      if(confirm(`「${h.name}」を削除しますか？`)){
-        hunters = hunters.filter(x => x.key !== h.key);
-        save();
-        render();
-      }
-    }
-
-    if(btn.dataset.action === "edit"){
-      nameEl.value = h.name;
-      idEl.value = h.id;
-      reporterEl.value = h.reporter || "";
-      ratingEl.value = String(h.rating);
-      statusEl.value = h.status;
-      notesEl.value = h.notes || "";
-      editKeyEl.value = h.key;
-      formTitle.textContent = "ハンター情報を編集";
-      saveBtn.textContent = "更新する";
-      cancelEdit.hidden = false;
-      window.scrollTo({top:0,behavior:"smooth"});
+      resetForm();
+      await loadHuntersFromCloud(true);
+      setSyncStatus("good","共有DB 接続済み");
+    }catch(err){
+      console.error(err);
+      setSyncStatus("bad","登録エラー");
+      alert("共有DBへの登録に失敗しました。SupabaseのINSERTポリシーを確認してください。");
+    }finally{
+      saveBtn.disabled = false;
+      saveBtn.textContent = "登録する";
     }
   });
 
@@ -1275,25 +1287,31 @@ button,.btn,.icon-btn{
     try{
       const data = JSON.parse(await file.text());
       if(!Array.isArray(data)) throw new Error();
-      if(!confirm(`バックアップ ${data.length}件を読み込み、現在のデータを置き換えますか？`)) return;
-      hunters = data;
-      save();
-      render();
+
+      if(!confirm(`バックアップ ${data.length}件を共有DBへ追加しますか？\n※既存データは削除されません。`)) return;
+
+      for(const h of data){
+        await insertHunterToCloud({
+          hunter_name: h.name || h.hunter_name || "",
+          hunter_id: h.id || h.hunter_id || "",
+          reporter: h.reporter || "",
+          rating: Number(h.rating || 3),
+          status: h.status || "普通",
+          notes: h.notes || ""
+        });
+      }
+
+      await loadHuntersFromCloud(true);
+      alert("共有DBへの読み込みが完了しました。");
     }catch{
-      alert("読み込めないJSONファイルです。");
+      alert("読み込みに失敗しました。JSON形式と共有DB接続を確認してください。");
     }finally{
       e.target.value = "";
     }
   });
 
   $("deleteAllBtn").addEventListener("click", () => {
-    if(!hunters.length) return;
-    if(confirm("登録データをすべて削除しますか？この操作は元に戻せません。")){
-      hunters = [];
-      save();
-      resetForm();
-      render();
-    }
+    alert("共有DB版では安全のため削除権限をまだ有効にしていません。");
   });
 
   function showView(name){
@@ -1435,7 +1453,19 @@ button,.btn,.icon-btn{
   });
 
   loadBackgroundSettings();
-  render();
+  loadHuntersFromCloud();
+
+  setInterval(() => {
+    if(document.visibilityState === "visible"){
+      loadHuntersFromCloud(true);
+    }
+  }, 5000);
+
+  document.addEventListener("visibilitychange", () => {
+    if(document.visibilityState === "visible"){
+      loadHuntersFromCloud(true);
+    }
+  });
 
   if("serviceWorker" in navigator && location.protocol.startsWith("http")){
     navigator.serviceWorker.register("./sw.js", { updateViaCache:"none" })
