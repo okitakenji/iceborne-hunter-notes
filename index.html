@@ -1438,7 +1438,9 @@ button,.btn,.icon-btn{
   render();
 
   if("serviceWorker" in navigator && location.protocol.startsWith("http")){
-    navigator.serviceWorker.register("./sw.js").catch(()=>{});
+    navigator.serviceWorker.register("./sw.js", { updateViaCache:"none" })
+      .then(reg => reg.update())
+      .catch(()=>{});
   }
 })();
 </script>
