@@ -862,6 +862,9 @@ button,.btn,.icon-btn{
           <label for="hunterId">ID *</label>
           <input id="hunterId" maxlength="60" required placeholder="PSN ID / Steam ID など">
 
+          <label for="reporter">報告者名</label>
+          <input id="reporter" maxlength="40" placeholder="例：沖田">
+
           <div class="two-col">
             <div>
               <label for="rating">民度評価</label>
@@ -911,7 +914,7 @@ button,.btn,.icon-btn{
               <circle cx="11" cy="11" r="7"></circle>
               <path d="m20 20-3.8-3.8"></path>
             </svg>
-            <input id="search" placeholder="名前 / ID / 備考を検索">
+            <input id="search" placeholder="名前 / ID / 報告者 / 備考を検索">
           </div>
           <select id="ratingFilter">
             <option value="">評価：すべて</option>
@@ -939,6 +942,7 @@ button,.btn,.icon-btn{
               <tr>
                 <th>ハンター名</th>
                 <th>ID</th>
+                <th>報告者</th>
                 <th>民度評価</th>
                 <th>状態</th>
                 <th>備考</th>
@@ -1053,6 +1057,7 @@ button,.btn,.icon-btn{
   const form = $("hunterForm");
   const nameEl = $("hunterName");
   const idEl = $("hunterId");
+  const reporterEl = $("reporter");
   const ratingEl = $("rating");
   const statusEl = $("status");
   const notesEl = $("notes");
@@ -1118,7 +1123,7 @@ button,.btn,.icon-btn{
     const sf = statusFilter.value;
 
     return hunters.filter(h => {
-      const text = [h.name,h.id,h.notes].join(" ").toLowerCase();
+      const text = [h.name,h.id,h.reporter,h.notes].join(" ").toLowerCase();
       return (!q || text.includes(q)) &&
              (!rf || String(h.rating) === rf) &&
              (!sf || h.status === sf);
@@ -1139,6 +1144,7 @@ button,.btn,.icon-btn{
       tr.innerHTML = `
         <td><div class="hunter-name">${esc(h.name)}</div></td>
         <td>${esc(h.id)}</td>
+        <td>${esc(h.reporter || "—")}</td>
         <td>${esc(stars(h.rating))}</td>
         <td><span class="pill ${statusClass(h.status)}">${esc(h.status)}</span></td>
         <td class="note">${esc(h.notes || "—")}</td>
@@ -1179,6 +1185,7 @@ button,.btn,.icon-btn{
           ...hunters[idx],
           name,
           id,
+          reporter:reporterEl.value.trim(),
           rating:Number(ratingEl.value),
           status:statusEl.value,
           notes:notesEl.value.trim(),
@@ -1191,6 +1198,7 @@ button,.btn,.icon-btn{
         key: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random(),
         name,
         id,
+        reporter:reporterEl.value.trim(),
         rating:Number(ratingEl.value),
         status:statusEl.value,
         notes:notesEl.value.trim(),
@@ -1223,6 +1231,7 @@ button,.btn,.icon-btn{
     if(btn.dataset.action === "edit"){
       nameEl.value = h.name;
       idEl.value = h.id;
+      reporterEl.value = h.reporter || "";
       ratingEl.value = String(h.rating);
       statusEl.value = h.status;
       notesEl.value = h.notes || "";
