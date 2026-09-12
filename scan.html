@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#05070d">
 <title>画像から登録・照合 - Iceborne Hunter Notes</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
 :root{
   --surface:rgba(7,12,22,.70);--surface2:rgba(5,10,18,.82);
@@ -109,19 +110,19 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 <div class="wrap">
   <div class="topbar">
     <a class="back" href="./index.html">← Hunter Notesへ戻る</a>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="pill">AI Vision build v21</div><div class="pill" id="dbStatus">共有DB 接続確認中</div></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="pill">OCR build v20 reliable</div><div class="pill" id="dbStatus">共有DB 接続確認中</div></div>
   </div>
 
   <section class="hero">
     <div class="eyebrow">Screenshot Scanner</div>
     <h1>画像から登録・照合</h1>
-    <p>メンバーリストのスクリーンショットをAI画像認識で読み取り、ハンター名とオンラインIDを抽出します。登録済みメンバーの照合にも使えます。</p>
+    <p>メンバーリストのスクリーンショットを読み取り、名前とオンラインIDを候補化します。登録済みメンバーの照合だけでも使えます。</p>
   </section>
 
   <div class="grid">
     <section class="card">
       <h2>1. スクショを選択</h2>
-      <div class="sub">メンバーリストが左側に表示された4Kスクリーンショットを使用してください。ブラウザ内OCRではなく、サーバー側のAI画像認識で読み取ります。</div>
+      <div class="sub">メンバーリストが左側に表示された16:9スクリーンショットを使用してください。4K配置を基準に読み取ります。</div>
 
       <label for="shotFile">スクリーンショット</label>
       <input type="file" id="shotFile" accept="image/*">
@@ -258,7 +259,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   }
 
   function recomputeReview(r){
-    r.needsReview = !r.existing && !(r.name && r.id);
+    r.needsReview = !r.existing && !r.entryConfirmed;
   }
 
   async function loadCloud(){
@@ -715,137 +716,71 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
     };
   }
 
-
-  const AI_READ_URL = `${SUPABASE_URL}/functions/v1/read-hunters`;
-
-  function makeVisionSheet(img){
-    const x1=0.073;
-    const x2=0.410;
-    const rowH=ROW_H*1.20;
-    const scale=2;
-
-    const sourceW=Math.round(img.naturalWidth*(x2-x1));
-    const sourceH=Math.round(img.naturalHeight*rowH);
-    const labelW=90*scale;
-    const gap=8*scale;
-    const outW=labelW+sourceW*scale;
-    const outH=(sourceH*scale+gap)*14;
-
-    const c=document.createElement("canvas");
-    c.width=outW;
-    c.height=outH;
-    const ctx=c.getContext("2d");
-    ctx.fillStyle="#05070d";
-    ctx.fillRect(0,0,outW,outH);
-    ctx.imageSmoothingEnabled=true;
-
-    for(let j=0;j<14;j++){
-      const rowIndex=j+1;
-      const gameRow=rowIndex+1;
-      const y=ROW_Y0+ROW_STEP*rowIndex;
-      const sx=Math.round(img.naturalWidth*x1);
-      const sw=sourceW;
-      const sh=sourceH;
-      const sy=Math.max(0,Math.round(img.naturalHeight*y-sh/2));
-      const dy=j*(sourceH*scale+gap);
-
-      ctx.fillStyle="#0b1420";
-      ctx.fillRect(0,dy,labelW,sourceH*scale);
-      ctx.fillStyle="#73ecff";
-      ctx.font=`700 ${30*scale}px system-ui`;
-      ctx.textAlign="center";
-      ctx.textBaseline="middle";
-      ctx.fillText(String(gameRow),labelW/2,dy+(sourceH*scale)/2);
-
-      ctx.drawImage(
-        img,
-        sx,sy,sw,sh,
-        labelW,dy,sw*scale,sh*scale
-      );
-    }
-
-    return c.toDataURL("image/jpeg",0.95);
-  }
-
-  async function analyzeHuntersWithAI(img){
-    const sheet=makeVisionSheet(img);
-
-    const res=await fetch(AI_READ_URL,{
-      method:"POST",
-      headers:{
-        "Content-Type":"application/json"
-      },
-      body:JSON.stringify({image:sheet})
-    });
-
-    const payload=await res.json().catch(()=>({}));
-    if(!res.ok){
-      throw new Error(payload?.error || `AI読み取りエラー HTTP ${res.status}`);
-    }
-    if(!Array.isArray(payload.members)){
-      throw new Error("AI読み取り結果の形式が不正です");
-    }
-    return payload.members;
-  }
-
   async function recognizeRows(){
     if(!image) return;
     analyzeBtn.disabled=true;
     rows=[];
-    resultsEl.innerHTML='<div class="sub">AI画像認識を準備しています…</div>';
-    setProgress(8,"4KメンバーリストをAIへ送信しています…");
+    resultsEl.innerHTML='<div class="sub">OCRを準備しています…</div>';
+    setProgress(2,"OCRエンジンを準備しています…");
 
+    let nameWorker,idWorker;
     try{
-      const members=await analyzeHuntersWithAI(image);
-      setProgress(78,"共有DBと照合しています…");
+      nameWorker=await Tesseract.createWorker("jpn+eng+ell",1,{
+        logger:m=>{if(m.status==="loading language traineddata")setProgress(4+Math.round((m.progress||0)*6),"日本語データを読み込んでいます…");}
+      });
+      idWorker=await Tesseract.createWorker("eng");
 
-      const byRow=new Map(
-        members.map(m=>[Number(m.row),m])
-      );
+      await nameWorker.setParameters({
+        tessedit_pageseg_mode:Tesseract.PSM.SINGLE_LINE
+      });
+      await idWorker.setParameters({
+        tessedit_pageseg_mode:Tesseract.PSM.SINGLE_LINE,
+        tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-"
+      });
 
       for(let j=0;j<14;j++){
         const rowIndex=j+1;
-        const gameRow=rowIndex+1;
         const y=ROW_Y0+ROW_STEP*rowIndex;
-        const ai=byRow.get(gameRow)||{};
+        setProgress(12+(j/14)*82,`${j+1} / 14 人目を読み取り中…`);
 
-        let name=String(ai.name||"").trim();
-        let id=String(ai.id||"").trim();
+        const [nameResult,idResult]=await Promise.all([
+          recognizeNameMulti(nameWorker,image,y),
+          recognizeIdMulti(idWorker,image,y)
+        ]);
 
-        const existing=findExisting(name,id);
-        if(existing){
-          name=existing.hunter_name||name;
-          id=existing.hunter_id||id;
-        }
+        const nameSuggestion=nameResult.name||"";
+        const idSuggestion=idResult.id||"";
+
+        const existing=findExisting(nameSuggestion,idSuggestion);
+        const name=existing ? (existing.hunter_name||nameSuggestion) : "";
+        const id=existing ? (existing.hunter_id||idSuggestion) : "";
 
         rows.push({
-          row:gameRow,
+          row:rowIndex+1,
           name,
           id,
-          nameSuggestion:name,
-          idSuggestion:id,
+          nameSuggestion,
+          idSuggestion,
           existing,
           preview:makeRowPreview(image,y),
-          nameConfidence:Number(ai.name_confidence||0),
-          idConfidence:Number(ai.id_confidence||0),
-          idAgreement:1,
-          entryConfirmed:Boolean(name&&id),
-          needsReview:!(name&&id),
+          nameConfidence:Number(nameResult.confidence||0),
+          idConfidence:Number(idResult.confidence||0),
+          idAgreement:Number(idResult.agreement||0),
+          entryConfirmed:Boolean(existing),
+          needsReview:!existing,
           selected:false
         });
       }
 
       renderRows();
-      setProgress(100,`AI解析完了：${rows.length}人を読み取りました`);
+      setProgress(100,`解析完了：${rows.length}人の候補を検出しました`);
     }catch(err){
       console.error(err);
-      resultsEl.innerHTML=`
-        <div class="notice">
-          AI画像認識に失敗しました。<br>
-          ${escapeHtml(err?.message||String(err))}
-        </div>`;
-      setProgress(0,"AI画像認識に失敗しました");
+      resultsEl.innerHTML='<div class="notice">OCRの読み込みまたは解析に失敗しました。通信状態を確認して、もう一度お試しください。</div>';
+      setProgress(0,"解析に失敗しました");
     }finally{
+      try{if(nameWorker)await nameWorker.terminate();}catch{}
+      try{if(idWorker)await idWorker.terminate();}catch{}
       analyzeBtn.disabled=false;
     }
   }
@@ -894,7 +829,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 
       const suggestionHtml=r.existing ? "" : `
         <div class="suggestions">
-          <span class="suggestion-label">AI候補：</span>
+          <span class="suggestion-label">OCR候補：</span>
           ${r.nameSuggestion ? `<button type="button" class="suggestion-btn use-name">名前「${escapeHtml(r.nameSuggestion)}」を使う</button>` : ""}
           ${r.idSuggestion ? `<button type="button" class="suggestion-btn use-id">ID「${escapeHtml(r.idSuggestion)}」を使う</button>` : ""}
         </div>`;
@@ -911,7 +846,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
         ${suggestionHtml}
         ${r.existing
           ? `<div class="existing">登録情報：${escapeHtml(r.existing.hunter_name||"")} / ${escapeHtml(r.existing.hunter_id||"")}　報告者：${escapeHtml(r.existing.reporter||"—")}　評価：${escapeHtml(String(r.existing.rating||"—"))}</div>`
-          : `<div class="existing">上の切り抜き画像が正解です。AI読み取り結果は参考用で、候補を押しても「この内容で確定」するまでは登録対象になりません。</div>`}
+          : `<div class="existing">上の切り抜き画像が正解です。OCR候補は参考用で、候補を押しても「この内容で確定」するまでは登録対象になりません。</div>`}
       `;
 
       const checkbox=item.querySelector('input[type="checkbox"]');
