@@ -37,6 +37,19 @@
 
   <section class="timeline">
     <article class="entry">
+      <div class="entry-head"><div class="version">v1.10</div><div class="date">2026-09-12</div></div>
+      <h2>iPhoneのOCRとアップデート反映を改善</h2>
+      <ul>
+        <li>iPhone Safariで確認したOCR結果を基準に、名前・IDの前処理を再調整</li>
+        <li>名前・IDとも複数の前処理結果を比較し、一致数と信頼度から候補を決定</li>
+        <li>名前の先頭に混入する記号（&gt; など）を自動除去</li>
+        <li>要確認判定を調整し、正常なIDを過剰に弾きにくく改善</li>
+        <li>HTMLをService Workerの固定キャッシュ対象から外し、更新後の旧画面残りを改善</li>
+        <li>画像読み取り画面にOCR build番号を表示</li>
+      </ul>
+    </article>
+
+    <article class="entry">
       <div class="entry-head"><div class="version">v1.9</div><div class="date">2026-09-12</div></div>
       <h2>4KメンバーリストOCRを再構築</h2>
       <ul>

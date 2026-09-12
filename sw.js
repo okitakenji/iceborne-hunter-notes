@@ -1,10 +1,8 @@
-const CACHE = "hunter-notes-v14";
+const CACHE = "hunter-notes-v15";
 const STATIC_ASSETS = [
   "./manifest.webmanifest",
   "./icon-192.png",
-  "./icon-512.png",
-  "./changelog.html",
-  "./scan.html"
+  "./icon-512.png"
 ];
 
 self.addEventListener("install", event => {
@@ -30,29 +28,28 @@ self.addEventListener("fetch", event => {
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
+  const isHtml =
+    request.mode === "navigate" ||
+    url.pathname.endsWith(".html") ||
+    url.pathname.endsWith("/");
 
-  // HTML/navigation: network first, cache only as offline fallback.
-  if (request.mode === "navigate" || url.pathname.endsWith("/index.html")) {
+  // HTML must always prefer the network. This prevents an old scan.html
+  // from sticking around after an update on iPhone/PWA.
+  if (isHtml) {
     event.respondWith(
       fetch(request, { cache: "no-store" })
-        .then(response => {
-          const copy = response.clone();
-          caches.open(CACHE).then(cache => cache.put("./index.html", copy));
-          return response;
-        })
-        .catch(() =>
-          caches.match("./index.html").then(cached =>
-            cached || new Response("オフラインです。", {
-              status: 503,
-              headers: { "Content-Type": "text/plain; charset=utf-8" }
-            })
-          )
+        .catch(() => caches.match(request))
+        .then(response =>
+          response || new Response("オフラインです。", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" }
+          })
         )
     );
     return;
   }
 
-  // Static assets: cache first, then network.
+  // Icons/manifest can stay cache-first.
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;

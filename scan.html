@@ -101,7 +101,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 <div class="wrap">
   <div class="topbar">
     <a class="back" href="./index.html">← Hunter Notesへ戻る</a>
-    <div class="pill" id="dbStatus">共有DB 接続確認中</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="pill">OCR build v15</div><div class="pill" id="dbStatus">共有DB 接続確認中</div></div>
   </div>
 
   <section class="hero">
@@ -444,7 +444,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   }
 
 
-  function cropRawCanvas(img,x1,x2,yCenter,hRatio){
+  function cropRawCanvas(img,x1,x2,yCenter,hRatio,mode="raw"){
     const sx=Math.round(img.naturalWidth*x1);
     const sw=Math.round(img.naturalWidth*(x2-x1));
     const sh=Math.round(img.naturalHeight*hRatio);
@@ -452,64 +452,148 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
     const scale=4;
     const c=document.createElement("canvas");
     c.width=sw*scale;c.height=sh*scale;
-    const ctx=c.getContext("2d");
+    const ctx=c.getContext("2d",{willReadFrequently:true});
     ctx.imageSmoothingEnabled=true;
     ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
+
+    if(mode==="raw") return c;
+
+    const im=ctx.getImageData(0,0,c.width,c.height);
+    const d=im.data;
+    for(let i=0;i<d.length;i+=4){
+      const r=d[i],g=d[i+1],b=d[i+2];
+      const lum=.299*r+.587*g+.114*b;
+      let v;
+
+      if(mode==="threshold"){
+        // Iceborne's member-list text is bright on a dark translucent panel.
+        // Convert it to black text on white for Tesseract.
+        v=lum>=92 ? 0 : 255;
+      }else{
+        // Contrast/invert variant: useful for colored Japanese hunter names.
+        const stretched=Math.max(0,Math.min(255,(lum-45)*1.9));
+        v=255-stretched;
+      }
+
+      d[i]=d[i+1]=d[i+2]=v;
+      d[i+3]=255;
+    }
+    ctx.putImageData(im,0,0);
     return c;
   }
 
   function tidyNameCandidate(v){
     v=cleanText(v)
       .replace(/\s+/g," ")
-      .replace(/^\s*[&@#|"'`~]+/,"")
+      // Common UI/weapon-icon OCR garbage at the left edge.
+      .replace(/^\s*[><＜＞≫»›→⇒&@#|"'`~:;・。]+/u,"")
       .replace(/^[プヾ]\s+(?=\S)/u,"")
       .trim();
+
+    // Tesseract often inserts spaces between Japanese glyphs.
     v=v.replace(/([\u3040-\u30ff\u3400-\u9fff])\s+(?=[\u3040-\u30ff\u3400-\u9fff])/gu,"$1");
     return v.trim();
   }
 
+  function nameCandidateRank(name,confidence,count){
+    let rank=Number(confidence||0)+(count-1)*14;
+    if(!name) return -999;
+    if(name.length>28) rank-=35;
+    if(/^[A-Za-z]{1,2}\s/.test(name)) rank-=18;
+    if(/[ー\-]{3,}/.test(name)) rank-=18;
+    if(/^[><＜＞]/u.test(name)) rank-=30;
+    return rank;
+  }
+
   async function recognizeNameMulti(worker,img,y){
+    // Four passes, but with different crops/preprocessing rather than four near-identical OCRs.
     const variants=[
-      [0.083,0.190],
-      [0.090,0.190],
-      [0.095,0.190],
-      [0.095,0.180]
+      [0.083,0.190,"threshold"],
+      [0.090,0.190,"contrast"],
+      [0.095,0.190,"raw"],
+      [0.090,0.182,"raw"]
     ];
-    let best={name:"",confidence:-1,rank:-999};
-    for(const [x1,x2] of variants){
-      const rr=await worker.recognize(cropRawCanvas(img,x1,x2,y,ROW_H));
+
+    const found=[];
+    for(const [x1,x2,mode] of variants){
+      const rr=await worker.recognize(cropRawCanvas(img,x1,x2,y,ROW_H,mode));
       const name=tidyNameCandidate(rr.data.text);
-      const confidence=Number(rr.data.confidence||0);
-      let rank=confidence;
-      if(!name) rank-=100;
-      if(name.length>28) rank-=30;
-      if(/^[A-Za-z]{1,2}\s/.test(name)) rank-=15;
-      if(rank>best.rank) best={name,confidence,rank};
+      if(name){
+        found.push({name,confidence:Number(rr.data.confidence||0)});
+      }
+    }
+
+    if(!found.length) return {name:"",confidence:0};
+
+    const groups=new Map();
+    for(const item of found){
+      const key=item.name.normalize("NFKC");
+      const g=groups.get(key)||{name:item.name,count:0,bestConfidence:0};
+      g.count++;
+      g.bestConfidence=Math.max(g.bestConfidence,item.confidence);
+      groups.set(key,g);
+    }
+
+    let best={name:"",confidence:0,rank:-999};
+    for(const g of groups.values()){
+      const rank=nameCandidateRank(g.name,g.bestConfidence,g.count);
+      if(rank>best.rank){
+        best={name:g.name,confidence:g.bestConfidence,rank};
+      }
     }
     return best;
   }
 
   function tidyIdCandidate(v){
-    return cleanId(v).replace(/^[._-]+/,"");
+    return cleanId(v)
+      .replace(/^[._-]+/,"")
+      .replace(/[._-]{2,}$/,"");
+  }
+
+  function idCandidateRank(id,confidence,count){
+    let rank=Number(confidence||0)+(count-1)*15;
+    if(id.length<3||id.length>20) rank-=60;
+    if(!/[A-Za-z]/.test(id)) rank-=25;
+    if(/[_.-]{3,}/.test(id)) rank-=25;
+    return rank;
   }
 
   async function recognizeIdMulti(worker,img,y){
-    const xStarts=[0.294,0.300,0.306];
-    let best={id:"",confidence:-1,rank:-999};
-    for(const x1 of xStarts){
-      const rr=await worker.recognize(cropRawCanvas(img,x1,0.405,y,ROW_H));
+    const variants=[
+      [0.294,"raw"],
+      [0.300,"threshold"],
+      [0.306,"contrast"]
+    ];
+
+    const found=[];
+    for(const [x1,mode] of variants){
+      const rr=await worker.recognize(cropRawCanvas(img,x1,0.405,y,ROW_H,mode));
       const tokens=String(rr.data.text||"")
         .split(/\s+/)
         .map(tidyIdCandidate)
         .filter(v=>v.length>=3);
 
       for(const id of tokens){
-        const confidence=Number(rr.data.confidence||0);
-        let rank=confidence;
-        if(id.length<3||id.length>20) rank-=50;
-        if(!/[A-Za-z]/.test(id)) rank-=20;
-        if(/[_.-]{3,}/.test(id)) rank-=20;
-        if(rank>best.rank) best={id,confidence,rank};
+        found.push({id,confidence:Number(rr.data.confidence||0)});
+      }
+    }
+
+    if(!found.length) return {id:"",confidence:0};
+
+    const groups=new Map();
+    for(const item of found){
+      const key=item.id.toLowerCase();
+      const g=groups.get(key)||{id:item.id,count:0,bestConfidence:0};
+      g.count++;
+      g.bestConfidence=Math.max(g.bestConfidence,item.confidence);
+      groups.set(key,g);
+    }
+
+    let best={id:"",confidence:0,rank:-999};
+    for(const g of groups.values()){
+      const rank=idCandidateRank(g.id,g.bestConfidence,g.count);
+      if(rank>best.rank){
+        best={id:g.id,confidence:g.bestConfidence,rank};
       }
     }
     return best;
@@ -558,7 +642,9 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 
         const needsReview=!existing&&(
           !id ||
-          Number(nameResult.confidence||0)<35 ||
+          !name ||
+          Number(nameResult.confidence||0)<22 ||
+          Number(idResult.confidence||0)<22 ||
           idLooksSuspicious(id) ||
           nameLooksSuspicious(name)
         );
