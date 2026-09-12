@@ -37,13 +37,12 @@
 
   <section class="timeline">
     <article class="entry">
-      <div class="entry-head"><div class="version">v1.7</div><div class="date">2026-09-12</div></div>
-      <h2>スクリーンショット読み取り精度を改善</h2>
+      <div class="entry-head"><div class="version">v1.8</div><div class="date">2026-09-12</div></div>
+      <h2>OCR方式を安定版へ戻して再調整</h2>
       <ul>
-        <li>オンラインIDを列まとめ読みから「各行ごとの個別OCR」に変更</li>
-        <li>各行で上下に微調整した3候補を比較し、最も自然なIDを採用</li>
-        <li>名前とIDを同じ行座標から読むことで、行ズレを起こしにくく改善</li>
-        <li>初期状態は全員未選択のまま維持</li>
+        <li>v12で悪化した名前の行別切り出し変更を撤回し、v11方式へ復帰</li>
+        <li>オンラインIDは従来結果を優先し、明確に良い候補だけ行別再読取で補正</li>
+        <li>画像解析直後は必ず全員未選択に統一</li>
       </ul>
     </article>
 
