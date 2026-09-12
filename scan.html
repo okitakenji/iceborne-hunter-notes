@@ -139,7 +139,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 
     <section class="card">
       <h2>2. 読み取り結果</h2>
-      <div class="sub">登録済みなら緑色で表示します。検索用途では「登録済みだけ」を押すと、スクショ内の既登録ハンターだけ確認できます。</div>
+      <div class="sub">登録済みなら緑色で表示します。オンラインIDが既存DBと一致した場合は、OCR結果よりDBに保存済みの名前・IDを優先して表示します。検索用途では「登録済みだけ」を押すと、スクショ内の既登録ハンターだけ確認できます。</div>
 
       <div class="summary" style="margin-top:13px">
         <span class="pill" id="totalBadge">候補 0</span>
@@ -169,8 +169,8 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 
   // Reference coordinates measured from the fixed Iceborne member-list layout.
   // Ratios allow the same layout to work even if the image file is internally resized.
-  const NAME_X1 = 0.073;
-  const NAME_X2 = 0.205;
+  const NAME_X1 = 0.080;
+  const NAME_X2 = 0.180;
   const ID_X1   = 0.300;
   const ID_X2   = 0.405;
   const ROW_Y0  = 0.1915;
@@ -230,12 +230,34 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
     }
   }
 
+  function levenshtein(a,b){
+    a=String(a||""); b=String(b||"");
+    const dp=Array.from({length:a.length+1},()=>Array(b.length+1).fill(0));
+    for(let i=0;i<=a.length;i++) dp[i][0]=i;
+    for(let j=0;j<=b.length;j++) dp[0][j]=j;
+    for(let i=1;i<=a.length;i++){
+      for(let j=1;j<=b.length;j++){
+        const cost=a[i-1]===b[j-1]?0:1;
+        dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+cost);
+      }
+    }
+    return dp[a.length][b.length];
+  }
+
   function findExisting(name,id){
     const ni = norm(id);
     const nn = norm(name);
     if(ni){
-      const hit = cloudHunters.find(h => norm(h.hunter_id) === ni);
-      if(hit) return hit;
+      const exact = cloudHunters.find(h => norm(h.hunter_id) === ni);
+      if(exact) return exact;
+      if(ni.length >= 6){
+        const fuzzy = cloudHunters.find(h => {
+          const hi = norm(h.hunter_id);
+          if(!hi || hi.length < 6 || Math.abs(hi.length-ni.length) > 1) return false;
+          return levenshtein(hi,ni) <= 1;
+        });
+        if(fuzzy) return fuzzy;
+      }
     }
     if(nn){
       return cloudHunters.find(h => norm(h.hunter_name) === nn) || null;
@@ -248,13 +270,13 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
     progressText.textContent = text || "";
   }
 
-  function cropCanvas(img, x1, x2, yCenter, hRatio){
+  function cropCanvas(img, x1, x2, yCenter, hRatio, kind="name", rowIndex=0){
     const sx = Math.round(img.naturalWidth * x1);
     const sw = Math.round(img.naturalWidth * (x2-x1));
     const sh = Math.round(img.naturalHeight * hRatio);
     const sy = Math.max(0, Math.round(img.naturalHeight * yCenter - sh/2));
 
-    const scale = 3;
+    const scale = 4;
     const c = document.createElement("canvas");
     c.width = sw * scale;
     c.height = sh * scale;
@@ -262,23 +284,51 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
 
-    // High-contrast conversion: bright game text -> black, dark panel -> white.
     const data = ctx.getImageData(0,0,c.width,c.height);
     const d = data.data;
-    for(let i=0;i<d.length;i+=4){
-      const r=d[i],g=d[i+1],b=d[i+2];
-      const lum = 0.299*r + 0.587*g + 0.114*b;
-      // The selected first row has a green background, so a simple threshold
-      // works better there. Other rows retain grayscale detail for OCR.
-      let v;
-      if (yCenter < ROW_Y0 + ROW_STEP * 0.5) {
-        v = lum > 130 ? 255 : 0;
-      } else {
-        v = Math.max(0, Math.min(255, (lum - 128) * 2.2 + 128));
+
+    if(kind === "name"){
+      let minLum=255, maxLum=0;
+      for(let i=0;i<d.length;i+=4){
+        const lum=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+        if(lum<minLum) minLum=lum;
+        if(lum>maxLum) maxLum=lum;
       }
-      d[i]=d[i+1]=d[i+2]=v;
-      d[i+3]=255;
+      const range=Math.max(1,maxLum-minLum);
+      const maskX=Math.round(c.width*0.20);
+      for(let y=0;y<c.height;y++){
+        for(let x=0;x<c.width;x++){
+          const i=(y*c.width+x)*4;
+          if(x<maskX){
+            d[i]=d[i+1]=d[i+2]=255;
+          }else{
+            const lum=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+            const stretched=Math.max(0,Math.min(255,((lum-minLum)/range)*255));
+            const v=255-stretched;
+            d[i]=d[i+1]=d[i+2]=v;
+          }
+          d[i+3]=255;
+        }
+      }
+    }else{
+      for(let i=0;i<d.length;i+=4){
+        const r=d[i],g=d[i+1],b=d[i+2];
+        const lum=0.299*r+0.587*g+0.114*b;
+        let v;
+        if(rowIndex===0){
+          const maxc=Math.max(r,g,b), minc=Math.min(r,g,b);
+          const sat=maxc-minc;
+          const brightText=(lum>92)||((maxc>120)&&(sat>35));
+          v=brightText?0:255;
+        }else{
+          const stretched=Math.max(0,Math.min(255,(lum-55)*1.75));
+          v=255-stretched;
+        }
+        d[i]=d[i+1]=d[i+2]=v;
+        d[i+3]=255;
+      }
     }
+
     ctx.putImageData(data,0,0);
     return c;
   }
@@ -300,13 +350,18 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
         }
       });
       idWorker = await Tesseract.createWorker("eng");
-      await nameWorker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE });
-      await idWorker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE });
+      await nameWorker.setParameters({
+        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE
+      });
+      await idWorker.setParameters({
+        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
+        tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-"
+      });
 
       for(let i=0;i<ROW_COUNT;i++){
         const y = ROW_Y0 + ROW_STEP * i;
-        const nameCanvas = cropCanvas(image, NAME_X1, NAME_X2, y, ROW_H);
-        const idCanvas = cropCanvas(image, ID_X1, ID_X2, y, ROW_H);
+        const nameCanvas = cropCanvas(image, NAME_X1, NAME_X2, y, ROW_H, "name", i);
+        const idCanvas = cropCanvas(image, ID_X1, ID_X2, y, ROW_H, "id", i);
 
         setProgress(10 + (i/ROW_COUNT)*82, `${i+1} / ${ROW_COUNT} 人目を読み取り中…`);
 
@@ -322,6 +377,11 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
         if(!name && !id) continue;
 
         const existing = findExisting(name,id);
+        if(existing){
+          name = existing.hunter_name || name;
+          id = existing.hunter_id || id;
+        }
+
         rows.push({
           row:i+1,
           name,
@@ -386,8 +446,10 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
       const idInput = item.querySelector(".hid");
 
       checkbox?.addEventListener("change",()=>{ r.selected=checkbox.checked; updateRegisterButton(); });
-      nameInput.addEventListener("input",()=>{ r.name=nameInput.value; r.existing=findExisting(r.name,r.id); renderRows(filter); });
-      idInput.addEventListener("input",()=>{ r.id=idInput.value; r.existing=findExisting(r.name,r.id); renderRows(filter); });
+      nameInput.addEventListener("input",()=>{ r.name=nameInput.value; });
+      idInput.addEventListener("input",()=>{ r.id=idInput.value; });
+      nameInput.addEventListener("change",()=>{ r.existing=findExisting(r.name,r.id); renderRows(filter); });
+      idInput.addEventListener("change",()=>{ r.existing=findExisting(r.name,r.id); renderRows(filter); });
 
       resultsEl.appendChild(item);
     });
