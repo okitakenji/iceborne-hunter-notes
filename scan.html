@@ -101,7 +101,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 <div class="wrap">
   <div class="topbar">
     <a class="back" href="./index.html">← Hunter Notesへ戻る</a>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="pill">OCR build v15</div><div class="pill" id="dbStatus">共有DB 接続確認中</div></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="pill">OCR build v16</div><div class="pill" id="dbStatus">共有DB 接続確認中</div></div>
   </div>
 
   <section class="hero">
@@ -139,7 +139,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 
     <section class="card">
       <h2>2. 読み取り結果</h2>
-      <div class="sub">先頭行（自分のハンター）は除外し、2〜15行目を読み取ります。登録済みなら緑色で表示します。初期状態では誰も選択されません。OCR結果が怪しい候補は「要確認」として自動選択の対象外になります。オンラインIDが既存DBと一致した場合は、OCR結果よりDBに保存済みの名前・IDを優先して表示します。検索用途では「登録済みだけ」を押すと、スクショ内の既登録ハンターだけ確認できます。</div>
+      <div class="sub">先頭行（自分のハンター）は除外し、2〜15行目を読み取ります。オンラインIDを照合の基準にします。登録済みならDBの正式な名前・IDを緑色で表示します。未登録の名前OCRは候補扱いで、確認するまで登録できません。初期状態では誰も選択されません。OCR結果が怪しい候補は「要確認」として自動選択の対象外になります。オンラインIDが既存DBと一致した場合は、OCR結果よりDBに保存済みの名前・IDを優先して表示します。検索用途では「登録済みだけ」を押すと、スクショ内の既登録ハンターだけ確認できます。</div>
 
       <div class="summary" style="margin-top:13px">
         <span class="pill" id="totalBadge">候補 0</span>
@@ -253,8 +253,8 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
     r.needsReview =
       !r.existing &&
       (
+        !r.nameConfirmed ||
         !r.id ||
-        Number(r.nameConfidence || 0) < 25 ||
         idLooksSuspicious(r.id) ||
         nameLooksSuspicious(r.name)
       );
@@ -656,7 +656,8 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
           existing,
           nameConfidence:Number(nameResult.confidence||0),
           idConfidence:Number(idResult.confidence||0),
-          needsReview,
+          needsReview: existing ? false : true,
+          nameConfirmed: Boolean(existing),
           selected:false
         });
       }
@@ -708,23 +709,68 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
         <input type="checkbox" ${r.selected ? "checked" : ""} ${(r.existing || r.needsReview) ? "disabled" : ""} aria-label="${r.row}行目を登録">
         <div class="field"><input class="name" value="${escapeHtml(r.name)}" placeholder="ハンター名"></div>
         <div class="field"><input class="hid" value="${escapeHtml(r.id)}" placeholder="オンラインID"></div>
-        <div class="status"><span class="pill ${r.existing ? "good" : (r.needsReview ? "bad" : "warn")}">${r.existing ? "登録済み" : (r.needsReview ? "要確認" : "未登録")}</span></div>
-        ${r.existing ? `<div class="existing">登録情報：${escapeHtml(r.existing.hunter_name||"")} / ${escapeHtml(r.existing.hunter_id||"")}　報告者：${escapeHtml(r.existing.reporter||"—")}　評価：${escapeHtml(String(r.existing.rating||"—"))}</div>` : ""}
+        <div class="status">
+          <span class="pill ${r.existing ? "good" : (r.needsReview ? "bad" : "warn")}">${r.existing ? "登録済み" : (r.needsReview ? "名前確認" : "未登録")}</span>
+          ${(!r.existing && r.needsReview) ? `<button type="button" class="btn confirm-name" style="min-height:34px;padding:0 10px;margin-left:8px">この名前で確定</button>` : ""}
+        </div>
+        ${r.existing
+          ? `<div class="existing">登録情報：${escapeHtml(r.existing.hunter_name||"")} / ${escapeHtml(r.existing.hunter_id||"")}　報告者：${escapeHtml(r.existing.reporter||"—")}　評価：${escapeHtml(String(r.existing.rating||"—"))}</div>`
+          : `<div class="existing">オンラインIDを優先して読み取っています。名前はOCR候補なので、正しいことを確認してから確定してください。</div>`}
       `;
 
       const checkbox = item.querySelector('input[type="checkbox"]');
       const nameInput = item.querySelector(".name");
       const idInput = item.querySelector(".hid");
+      const confirmNameBtn = item.querySelector(".confirm-name");
 
       checkbox?.addEventListener("change",()=>{
         r.selected = checkbox.checked && !r.needsReview;
         checkbox.checked = r.selected;
         updateRegisterButton();
       });
-      nameInput.addEventListener("input",()=>{ r.name=nameInput.value; });
-      idInput.addEventListener("input",()=>{ r.id=idInput.value; });
-      nameInput.addEventListener("change",()=>{ r.existing=findExisting(r.name,r.id); renderRows(filter); });
-      idInput.addEventListener("change",()=>{ r.existing=findExisting(r.name,r.id); renderRows(filter); });
+
+      nameInput.addEventListener("input",()=>{
+        r.name=nameInput.value;
+        if(!r.existing){
+          r.nameConfirmed=false;
+          r.selected=false;
+        }
+      });
+
+      idInput.addEventListener("input",()=>{
+        r.id=idInput.value;
+        if(!r.existing){
+          r.selected=false;
+        }
+      });
+
+      nameInput.addEventListener("change",()=>{
+        r.existing=findExisting(r.name,r.id);
+        if(r.existing) r.nameConfirmed=true;
+        recomputeReview(r);
+        renderRows(filter);
+      });
+
+      idInput.addEventListener("change",()=>{
+        r.existing=findExisting(r.name,r.id);
+        if(r.existing) r.nameConfirmed=true;
+        recomputeReview(r);
+        renderRows(filter);
+      });
+
+      confirmNameBtn?.addEventListener("click",()=>{
+        r.existing=findExisting(r.name,r.id);
+        if(r.existing){
+          r.name=r.existing.hunter_name||r.name;
+          r.id=r.existing.hunter_id||r.id;
+          r.nameConfirmed=true;
+          r.needsReview=false;
+        }else{
+          r.nameConfirmed=true;
+          recomputeReview(r);
+        }
+        renderRows(filter);
+      });
 
       resultsEl.appendChild(item);
     });
@@ -788,7 +834,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   $("selectNewBtn").addEventListener("click",()=>{
     rows.forEach(r=>{
       recomputeReview(r);
-      if(!r.existing && !r.needsReview && (r.name||r.id)){
+      if(!r.existing && !r.needsReview && r.nameConfirmed && (r.name||r.id)){
         r.selected=true;
       }
     });
