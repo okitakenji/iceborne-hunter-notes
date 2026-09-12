@@ -139,7 +139,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 
     <section class="card">
       <h2>2. 読み取り結果</h2>
-      <div class="sub">登録済みなら緑色で表示します。オンラインIDが既存DBと一致した場合は、OCR結果よりDBに保存済みの名前・IDを優先して表示します。検索用途では「登録済みだけ」を押すと、スクショ内の既登録ハンターだけ確認できます。</div>
+      <div class="sub">先頭行（自分のハンター）は除外し、2〜15行目を読み取ります。登録済みなら緑色で表示します。オンラインIDが既存DBと一致した場合は、OCR結果よりDBに保存済みの名前・IDを優先して表示します。検索用途では「登録済みだけ」を押すと、スクショ内の既登録ハンターだけ確認できます。</div>
 
       <div class="summary" style="margin-top:13px">
         <span class="pill" id="totalBadge">候補 0</span>
@@ -169,13 +169,13 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 
   // Reference coordinates measured from the fixed Iceborne member-list layout.
   // Ratios allow the same layout to work even if the image file is internally resized.
-  const NAME_X1 = 0.080;
-  const NAME_X2 = 0.180;
-  const ID_X1   = 0.300;
+  const NAME_X1 = 0.083;
+  const NAME_X2 = 0.205;
+  const ID_X1   = 0.294;
   const ID_X2   = 0.405;
-  const ROW_Y0  = 0.1915;
-  const ROW_STEP = 0.0318;
-  const ROW_H = 0.027;
+  const ROW_Y0  = 0.1943;
+  const ROW_STEP = 0.03161;
+  const ROW_H = 0.024;
 
   const $ = id => document.getElementById(id);
   const fileEl = $("shotFile");
@@ -200,11 +200,17 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   }
 
   function cleanText(s){
-    return String(s || "")
+    let v=String(s||"")
       .replace(/[\n\r]/g," ")
-      .replace(/^[^\p{L}\p{N}<［【「『(（]+/u,"")
       .replace(/[^\p{L}\p{N}_\-\.<>＜＞「」『』【】［］（）()ぁ-んァ-ヶ一-龠々ー・ ]+/gu,"")
+      .replace(/\s+/g," ")
       .trim();
+    if(/[ぁ-んァ-ヶ一-龠々]/.test(v)){
+      v=v.replace(/^[A-Za-z0-9]{1,2}\s+(?=[ぁ-んァ-ヶ一-龠々])/u,"");
+      v=v.replace(/\s+[A-Za-z0-9]{1,2}$/u,"");
+    }
+    v=v.replace(/[\s_\-=ー]{3,}$/u,"").trim();
+    return v;
   }
 
   function cleanId(s){
@@ -254,7 +260,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
         const fuzzy = cloudHunters.find(h => {
           const hi = norm(h.hunter_id);
           if(!hi || hi.length < 6 || Math.abs(hi.length-ni.length) > 1) return false;
-          return levenshtein(hi,ni) <= 1;
+          return levenshtein(hi,ni) <= (ni.length >= 10 ? 2 : 1);
         });
         if(fuzzy) return fuzzy;
       }
@@ -333,61 +339,84 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
     return c;
   }
 
+  function cropIdColumn(img){
+    const sx=Math.round(img.naturalWidth*0.294);
+    const sy=Math.round(img.naturalHeight*0.17);
+    const sw=Math.round(img.naturalWidth*(0.405-0.294));
+    const sh=Math.round(img.naturalHeight*(0.66-0.17));
+    const scale=4;
+    const c=document.createElement("canvas");
+    c.width=sw*scale; c.height=sh*scale;
+    const ctx=c.getContext("2d",{willReadFrequently:true});
+    ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
+    const data=ctx.getImageData(0,0,c.width,c.height),d=data.data;
+    let minLum=255,maxLum=0;
+    for(let i=0;i<d.length;i+=4){
+      const lum=.299*d[i]+.587*d[i+1]+.114*d[i+2];
+      if(lum<minLum)minLum=lum;if(lum>maxLum)maxLum=lum;
+    }
+    const range=Math.max(1,maxLum-minLum);
+    for(let i=0;i<d.length;i+=4){
+      const lum=.299*d[i]+.587*d[i+1]+.114*d[i+2];
+      const n=Math.max(0,Math.min(255,((lum-minLum)/range)*255));
+      const v=n<80?255:0;
+      d[i]=d[i+1]=d[i+2]=v;d[i+3]=255;
+    }
+    ctx.putImageData(data,0,0);
+    return c;
+  }
+
+  function cleanIdLines(text){
+    return String(text||"").split(/\r?\n/)
+      .map(v=>cleanId(v).replace(/^[._-]+/,""))
+      .filter(v=>v.length>=3);
+  }
+
   async function recognizeRows(){
     if(!image) return;
-    analyzeBtn.disabled = true;
-    rows = [];
-    resultsEl.innerHTML = '<div class="sub">OCRを準備しています…</div>';
+    analyzeBtn.disabled=true;
+    rows=[];
+    resultsEl.innerHTML='<div class="sub">OCRを準備しています…</div>';
     setProgress(2,"OCRエンジンを準備しています…");
 
-    let nameWorker, idWorker;
+    let nameWorker,idWorker;
     try{
-      nameWorker = await Tesseract.createWorker("jpn+eng", 1, {
-        logger: m => {
-          if(m.status === "loading language traineddata"){
-            setProgress(4 + Math.round((m.progress||0)*6),"日本語データを読み込んでいます…");
-          }
-        }
+      nameWorker=await Tesseract.createWorker("jpn+eng",1,{
+        logger:m=>{if(m.status==="loading language traineddata")setProgress(4+Math.round((m.progress||0)*6),"日本語データを読み込んでいます…");}
       });
-      idWorker = await Tesseract.createWorker("eng");
-      await nameWorker.setParameters({
-        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE
-      });
+      idWorker=await Tesseract.createWorker("eng");
+      await nameWorker.setParameters({tessedit_pageseg_mode:Tesseract.PSM.SINGLE_LINE});
       await idWorker.setParameters({
-        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
-        tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-"
+        tessedit_pageseg_mode:Tesseract.PSM.SINGLE_BLOCK,
+        tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-"
       });
 
-      for(let i=0;i<ROW_COUNT;i++){
-        const y = ROW_Y0 + ROW_STEP * i;
-        const nameCanvas = cropCanvas(image, NAME_X1, NAME_X2, y, ROW_H, "name", i);
-        const idCanvas = cropCanvas(image, ID_X1, ID_X2, y, ROW_H, "id", i);
+      setProgress(12,"オンラインID列をまとめて読み取っています…");
+      const idRes=await idWorker.recognize(cropIdColumn(image));
+      let ids=cleanIdLines(idRes.data.text);
 
-        setProgress(10 + (i/ROW_COUNT)*82, `${i+1} / ${ROW_COUNT} 人目を読み取り中…`);
+      // This scan intentionally excludes the first row (the local hunter), so 14 IDs are expected.
+      if(ids.length>14) ids=ids.slice(ids.length-14);
+      while(ids.length<14) ids.push("");
 
-        const [nameRes,idRes] = await Promise.all([
-          nameWorker.recognize(nameCanvas),
-          idWorker.recognize(idCanvas)
-        ]);
-
-        let name = cleanText(nameRes.data.text);
-        let id = cleanId(idRes.data.text);
-
-        // Skip truly empty rows.
-        if(!name && !id) continue;
-
-        const existing = findExisting(name,id);
-        if(existing){
-          name = existing.hunter_name || name;
-          id = existing.hunter_id || id;
-        }
-
+      for(let j=0;j<14;j++){
+        const rowIndex=j+1; // actual member-list row: 2..15
+        const y=ROW_Y0+ROW_STEP*rowIndex;
+        const nameCanvas=cropCanvas(image,NAME_X1,NAME_X2,y,ROW_H,"name",rowIndex);
+        setProgress(18+(j/14)*74,`${j+1} / 14 人目の名前を読み取り中…`);
+        const nameRes=await nameWorker.recognize(nameCanvas);
+        let name=cleanText(nameRes.data.text);
+        let id=ids[j]||"";
+        const existing=findExisting(name,id);
+        if(existing){name=existing.hunter_name||name;id=existing.hunter_id||id;}
+        const nameConfidence=Number(nameRes.data.confidence||0);
+        const needsReview=!existing&&(!id||nameConfidence<25);
         rows.push({
-          row:i+1,
-          name,
-          id,
-          existing,
-          selected:!existing && Boolean(id || name)
+          row:rowIndex+1,
+          name,id,existing,nameConfidence,
+          idConfidence:Number(idRes.data.confidence||0),
+          needsReview,
+          selected:!existing&&!needsReview&&Boolean(id||name)
         });
       }
 
@@ -395,12 +424,12 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
       setProgress(100,`解析完了：${rows.length}人の候補を検出しました`);
     }catch(err){
       console.error(err);
-      resultsEl.innerHTML = '<div class="notice">OCRの読み込みまたは解析に失敗しました。通信状態を確認して、もう一度お試しください。</div>';
+      resultsEl.innerHTML='<div class="notice">OCRの読み込みまたは解析に失敗しました。通信状態を確認して、もう一度お試しください。</div>';
       setProgress(0,"解析に失敗しました");
     }finally{
-      try{ if(nameWorker) await nameWorker.terminate(); }catch{}
-      try{ if(idWorker) await idWorker.terminate(); }catch{}
-      analyzeBtn.disabled = false;
+      try{if(nameWorker)await nameWorker.terminate();}catch{}
+      try{if(idWorker)await idWorker.terminate();}catch{}
+      analyzeBtn.disabled=false;
     }
   }
 
@@ -437,7 +466,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
         <input type="checkbox" ${r.selected ? "checked" : ""} ${r.existing ? "disabled" : ""} aria-label="${r.row}行目を登録">
         <div class="field"><input class="name" value="${escapeHtml(r.name)}" placeholder="ハンター名"></div>
         <div class="field"><input class="hid" value="${escapeHtml(r.id)}" placeholder="オンラインID"></div>
-        <div class="status"><span class="pill ${r.existing ? "good" : "warn"}">${r.existing ? "登録済み" : "未登録"}</span></div>
+        <div class="status"><span class="pill ${r.existing ? "good" : (r.needsReview ? "bad" : "warn")}">${r.existing ? "登録済み" : (r.needsReview ? "要確認" : "未登録")}</span></div>
         ${r.existing ? `<div class="existing">登録情報：${escapeHtml(r.existing.hunter_name||"")} / ${escapeHtml(r.existing.hunter_id||"")}　報告者：${escapeHtml(r.existing.reporter||"—")}　評価：${escapeHtml(String(r.existing.rating||"—"))}</div>` : ""}
       `;
 
