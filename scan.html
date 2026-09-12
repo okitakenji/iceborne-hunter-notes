@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#05070d">
+<title>画像から登録・照合 - Iceborne Hunter Notes</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+:root{
+  --surface:rgba(7,12,22,.70);--surface2:rgba(5,10,18,.82);
+  --line:rgba(101,220,255,.18);--text:#f4fbff;--muted:#91a8b7;
+  --cyan:#22e7ff;--violet:#b46cff;--pink:#ff4fd8;
+  --good:#5fffc0;--warn:#ffd36b;--bad:#ff668f;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;min-height:100vh;color:var(--text);
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI","Yu Gothic UI","Meiryo",sans-serif;
+  background:
+    radial-gradient(circle at 15% 0%,rgba(34,231,255,.13),transparent 33%),
+    radial-gradient(circle at 87% 8%,rgba(180,108,255,.12),transparent 31%),
+    linear-gradient(180deg,#04060b,#07101a 55%,#04070c);
+  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)
+}
+button,input,select{font:inherit}
+.wrap{
+  max-width:1120px;margin:0 auto;
+  padding:20px max(14px,env(safe-area-inset-left)) 50px max(14px,env(safe-area-inset-right))
+}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.back,.btn{
+  min-height:44px;border:1px solid var(--line);background:rgba(8,16,28,.76);color:var(--text);
+  border-radius:13px;padding:0 14px;display:inline-flex;align-items:center;justify-content:center;
+  gap:8px;text-decoration:none;cursor:pointer
+}
+.btn:hover,.back:hover{border-color:rgba(34,231,255,.4);box-shadow:0 0 18px rgba(34,231,255,.1)}
+.btn-primary{
+  background:linear-gradient(135deg,#0bc7ea,#7e62f6 58%,#e74cc4);
+  border-color:rgba(91,235,255,.35);box-shadow:0 0 18px rgba(34,231,255,.18)
+}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.hero,.card{
+  border:1px solid var(--line);background:var(--surface);backdrop-filter:blur(22px);
+  -webkit-backdrop-filter:blur(22px);box-shadow:0 24px 70px rgba(0,0,0,.42);
+  position:relative;overflow:hidden
+}
+.hero{border-radius:23px;padding:22px;margin-bottom:14px}
+.hero::after,.card::after{
+  content:"";position:absolute;left:18px;right:18px;top:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--cyan),var(--violet),var(--pink),transparent);
+  opacity:.55;filter:drop-shadow(0 0 6px var(--cyan))
+}
+.eyebrow{font-size:12px;letter-spacing:.16em;color:#79efff;text-transform:uppercase}
+h1{margin:9px 0 8px;font-size:clamp(27px,4vw,43px);letter-spacing:-.04em}
+.hero p{margin:0;color:var(--muted);line-height:1.65}
+.grid{display:grid;grid-template-columns:360px minmax(0,1fr);gap:14px}
+.card{border-radius:20px;padding:17px}
+.card h2{margin:0 0 5px;font-size:16px}
+.sub{font-size:12px;color:var(--muted);line-height:1.6}
+label{display:block;margin:12px 0 6px;font-size:12px;color:#cbd8e2;font-weight:700}
+input,select{
+  width:100%;min-height:44px;color:var(--text);background:rgba(3,9,16,.76);
+  border:1px solid rgba(255,255,255,.11);border-radius:12px;padding:10px 11px;outline:none
+}
+input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px rgba(34,231,255,.08)}
+.preview{margin-top:12px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#050a10;min-height:130px;display:grid;place-items:center;color:var(--muted);font-size:12px}
+.preview img{display:block;width:100%;height:auto}
+.progress{margin-top:12px}
+.progress-bar{height:7px;background:rgba(255,255,255,.07);border-radius:999px;overflow:hidden}
+.progress-fill{height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--violet),var(--pink));transition:width .2s}
+.progress-text{font-size:12px;color:var(--muted);margin-top:7px;min-height:18px}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}
+.summary{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.pill{display:inline-flex;align-items:center;min-height:28px;border-radius:999px;padding:0 9px;border:1px solid var(--line);font-size:11px;font-weight:800;background:rgba(255,255,255,.04)}
+.good{color:#b8f0d4;background:rgba(95,255,192,.08);border-color:rgba(95,255,192,.18)}
+.warn{color:#ffe3a9;background:rgba(255,211,107,.08);border-color:rgba(255,211,107,.18)}
+.bad{color:#ffc6d4;background:rgba(255,102,143,.08);border-color:rgba(255,102,143,.18)}
+.results{display:grid;gap:9px}
+.result{
+  border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:11px;
+  background:rgba(3,9,16,.56);display:grid;grid-template-columns:auto 1fr 1fr auto;gap:9px;align-items:center
+}
+.result.registered{border-color:rgba(95,255,192,.18);background:rgba(95,255,192,.035)}
+.result input[type="checkbox"]{width:20px;height:20px;min-height:0;accent-color:#22e7ff}
+.result .field input{min-height:39px;padding:8px 9px;font-size:14px}
+.status{white-space:nowrap}
+.existing{grid-column:2 / -1;font-size:11px;color:var(--muted);margin-top:-2px}
+.hidden{display:none!important}
+.notice{border:1px solid rgba(255,211,107,.18);background:rgba(255,211,107,.06);color:#ffe2a5;border-radius:12px;padding:10px 11px;font-size:12px;line-height:1.6;margin-top:10px}
+@media(max-width:850px){.grid{grid-template-columns:1fr}}
+@media(max-width:620px){
+  .result{grid-template-columns:auto minmax(0,1fr);}
+  .result .field{grid-column:2}
+  .status{grid-column:2}
+  .existing{grid-column:2}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <a class="back" href="./index.html">← Hunter Notesへ戻る</a>
+    <div class="pill" id="dbStatus">共有DB 接続確認中</div>
+  </div>
+
+  <section class="hero">
+    <div class="eyebrow">Screenshot Scanner</div>
+    <h1>画像から登録・照合</h1>
+    <p>メンバーリストのスクリーンショットを読み取り、名前とオンラインIDを候補化します。登録済みメンバーの照合だけでも使えます。</p>
+  </section>
+
+  <div class="grid">
+    <section class="card">
+      <h2>1. スクショを選択</h2>
+      <div class="sub">メンバーリストが左側に表示された16:9スクリーンショットを使用してください。4K配置を基準に読み取ります。</div>
+
+      <label for="shotFile">スクリーンショット</label>
+      <input type="file" id="shotFile" accept="image/*">
+
+      <div class="preview" id="preview">画像未選択</div>
+
+      <label for="reporterName">報告者名（一括登録時）</label>
+      <input id="reporterName" maxlength="40" placeholder="例：沖田">
+
+      <div class="tools">
+        <button type="button" class="btn btn-primary" id="analyzeBtn" disabled>画像を解析</button>
+      </div>
+
+      <div class="progress">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-text" id="progressText"></div>
+      </div>
+
+      <div class="notice">
+        OCRは読み間違える場合があります。登録前に名前・オンラインIDを必ず確認してください。
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2. 読み取り結果</h2>
+      <div class="sub">登録済みなら緑色で表示します。検索用途では「登録済みだけ」を押すと、スクショ内の既登録ハンターだけ確認できます。</div>
+
+      <div class="summary" style="margin-top:13px">
+        <span class="pill" id="totalBadge">候補 0</span>
+        <span class="pill good" id="registeredBadge">登録済み 0</span>
+        <span class="pill warn" id="newBadge">未登録 0</span>
+      </div>
+
+      <div class="tools" style="margin-top:0;margin-bottom:12px">
+        <button type="button" class="btn" id="showAllBtn">すべて表示</button>
+        <button type="button" class="btn" id="showRegisteredBtn">登録済みだけ</button>
+        <button type="button" class="btn" id="selectNewBtn">未登録を全選択</button>
+        <button type="button" class="btn btn-primary" id="registerSelectedBtn" disabled>選択した人を登録</button>
+      </div>
+
+      <div class="results" id="results">
+        <div class="sub">解析するとここに候補が表示されます。</div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+(() => {
+  const SUPABASE_URL = "https://cxksmeunzabvjeneuvol.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_Z7djJbpsYnLONLHpywTyhA_U6_sSnuN";
+  const ROW_COUNT = 15;
+
+  // Reference coordinates measured from the fixed Iceborne member-list layout.
+  // Ratios allow the same layout to work even if the image file is internally resized.
+  const NAME_X1 = 0.073;
+  const NAME_X2 = 0.205;
+  const ID_X1   = 0.300;
+  const ID_X2   = 0.405;
+  const ROW_Y0  = 0.1915;
+  const ROW_STEP = 0.0318;
+  const ROW_H = 0.027;
+
+  const $ = id => document.getElementById(id);
+  const fileEl = $("shotFile");
+  const analyzeBtn = $("analyzeBtn");
+  const preview = $("preview");
+  const progressFill = $("progressFill");
+  const progressText = $("progressText");
+  const resultsEl = $("results");
+  const dbStatus = $("dbStatus");
+  const reporterName = $("reporterName");
+
+  let image = null;
+  let cloudHunters = [];
+  let rows = [];
+
+  function norm(s){
+    return String(s || "")
+      .normalize("NFKC")
+      .replace(/[\s　]/g,"")
+      .replace(/[|｜]/g,"I")
+      .toLowerCase();
+  }
+
+  function cleanText(s){
+    return String(s || "")
+      .replace(/[\n\r]/g," ")
+      .replace(/^[^\p{L}\p{N}<［【「『(（]+/u,"")
+      .replace(/[^\p{L}\p{N}_\-\.<>＜＞「」『』【】［］（）()ぁ-んァ-ヶ一-龠々ー・ ]+/gu,"")
+      .trim();
+  }
+
+  function cleanId(s){
+    return String(s || "")
+      .replace(/\s+/g,"")
+      .replace(/[^A-Za-z0-9_.\-]/g,"")
+      .trim();
+  }
+
+  async function loadCloud(){
+    try{
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/hunters?select=*&order=created_at.desc`, {
+        headers: {apikey: SUPABASE_KEY},
+        cache:"no-store"
+      });
+      if(!res.ok) throw new Error();
+      cloudHunters = await res.json();
+      dbStatus.textContent = "共有DB 接続済み";
+      dbStatus.className = "pill good";
+    }catch{
+      dbStatus.textContent = "共有DB 接続エラー";
+      dbStatus.className = "pill bad";
+    }
+  }
+
+  function findExisting(name,id){
+    const ni = norm(id);
+    const nn = norm(name);
+    if(ni){
+      const hit = cloudHunters.find(h => norm(h.hunter_id) === ni);
+      if(hit) return hit;
+    }
+    if(nn){
+      return cloudHunters.find(h => norm(h.hunter_name) === nn) || null;
+    }
+    return null;
+  }
+
+  function setProgress(p,text){
+    progressFill.style.width = `${Math.max(0,Math.min(100,p))}%`;
+    progressText.textContent = text || "";
+  }
+
+  function cropCanvas(img, x1, x2, yCenter, hRatio){
+    const sx = Math.round(img.naturalWidth * x1);
+    const sw = Math.round(img.naturalWidth * (x2-x1));
+    const sh = Math.round(img.naturalHeight * hRatio);
+    const sy = Math.max(0, Math.round(img.naturalHeight * yCenter - sh/2));
+
+    const scale = 3;
+    const c = document.createElement("canvas");
+    c.width = sw * scale;
+    c.height = sh * scale;
+    const ctx = c.getContext("2d", {willReadFrequently:true});
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+
+    // High-contrast conversion: bright game text -> black, dark panel -> white.
+    const data = ctx.getImageData(0,0,c.width,c.height);
+    const d = data.data;
+    for(let i=0;i<d.length;i+=4){
+      const r=d[i],g=d[i+1],b=d[i+2];
+      const lum = 0.299*r + 0.587*g + 0.114*b;
+      // The selected first row has a green background, so a simple threshold
+      // works better there. Other rows retain grayscale detail for OCR.
+      let v;
+      if (yCenter < ROW_Y0 + ROW_STEP * 0.5) {
+        v = lum > 130 ? 255 : 0;
+      } else {
+        v = Math.max(0, Math.min(255, (lum - 128) * 2.2 + 128));
+      }
+      d[i]=d[i+1]=d[i+2]=v;
+      d[i+3]=255;
+    }
+    ctx.putImageData(data,0,0);
+    return c;
+  }
+
+  async function recognizeRows(){
+    if(!image) return;
+    analyzeBtn.disabled = true;
+    rows = [];
+    resultsEl.innerHTML = '<div class="sub">OCRを準備しています…</div>';
+    setProgress(2,"OCRエンジンを準備しています…");
+
+    let nameWorker, idWorker;
+    try{
+      nameWorker = await Tesseract.createWorker("jpn+eng", 1, {
+        logger: m => {
+          if(m.status === "loading language traineddata"){
+            setProgress(4 + Math.round((m.progress||0)*6),"日本語データを読み込んでいます…");
+          }
+        }
+      });
+      idWorker = await Tesseract.createWorker("eng");
+      await nameWorker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE });
+      await idWorker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE });
+
+      for(let i=0;i<ROW_COUNT;i++){
+        const y = ROW_Y0 + ROW_STEP * i;
+        const nameCanvas = cropCanvas(image, NAME_X1, NAME_X2, y, ROW_H);
+        const idCanvas = cropCanvas(image, ID_X1, ID_X2, y, ROW_H);
+
+        setProgress(10 + (i/ROW_COUNT)*82, `${i+1} / ${ROW_COUNT} 人目を読み取り中…`);
+
+        const [nameRes,idRes] = await Promise.all([
+          nameWorker.recognize(nameCanvas),
+          idWorker.recognize(idCanvas)
+        ]);
+
+        let name = cleanText(nameRes.data.text);
+        let id = cleanId(idRes.data.text);
+
+        // Skip truly empty rows.
+        if(!name && !id) continue;
+
+        const existing = findExisting(name,id);
+        rows.push({
+          row:i+1,
+          name,
+          id,
+          existing,
+          selected:!existing && Boolean(id || name)
+        });
+      }
+
+      renderRows();
+      setProgress(100,`解析完了：${rows.length}人の候補を検出しました`);
+    }catch(err){
+      console.error(err);
+      resultsEl.innerHTML = '<div class="notice">OCRの読み込みまたは解析に失敗しました。通信状態を確認して、もう一度お試しください。</div>';
+      setProgress(0,"解析に失敗しました");
+    }finally{
+      try{ if(nameWorker) await nameWorker.terminate(); }catch{}
+      try{ if(idWorker) await idWorker.terminate(); }catch{}
+      analyzeBtn.disabled = false;
+    }
+  }
+
+  function refreshMatches(){
+    rows.forEach(r => {
+      r.existing = findExisting(r.name,r.id);
+      if(r.existing) r.selected = false;
+    });
+  }
+
+  function renderRows(filter="all"){
+    refreshMatches();
+    const registered = rows.filter(r=>r.existing).length;
+    const newCount = rows.length-registered;
+    $("totalBadge").textContent = `候補 ${rows.length}`;
+    $("registeredBadge").textContent = `登録済み ${registered}`;
+    $("newBadge").textContent = `未登録 ${newCount}`;
+
+    const shown = filter === "registered" ? rows.filter(r=>r.existing) : rows;
+
+    if(!shown.length){
+      resultsEl.innerHTML = `<div class="sub">${filter==="registered" ? "このスクショ内に登録済みハンターは見つかりませんでした。" : "候補がありません。"}</div>`;
+      $("registerSelectedBtn").disabled = true;
+      return;
+    }
+
+    resultsEl.innerHTML = "";
+    shown.forEach(r => {
+      const item = document.createElement("div");
+      item.className = `result ${r.existing ? "registered" : ""}`;
+      item.dataset.row = String(r.row);
+
+      item.innerHTML = `
+        <input type="checkbox" ${r.selected ? "checked" : ""} ${r.existing ? "disabled" : ""} aria-label="${r.row}行目を登録">
+        <div class="field"><input class="name" value="${escapeHtml(r.name)}" placeholder="ハンター名"></div>
+        <div class="field"><input class="hid" value="${escapeHtml(r.id)}" placeholder="オンラインID"></div>
+        <div class="status"><span class="pill ${r.existing ? "good" : "warn"}">${r.existing ? "登録済み" : "未登録"}</span></div>
+        ${r.existing ? `<div class="existing">登録情報：${escapeHtml(r.existing.hunter_name||"")} / ${escapeHtml(r.existing.hunter_id||"")}　報告者：${escapeHtml(r.existing.reporter||"—")}　評価：${escapeHtml(String(r.existing.rating||"—"))}</div>` : ""}
+      `;
+
+      const checkbox = item.querySelector('input[type="checkbox"]');
+      const nameInput = item.querySelector(".name");
+      const idInput = item.querySelector(".hid");
+
+      checkbox?.addEventListener("change",()=>{ r.selected=checkbox.checked; updateRegisterButton(); });
+      nameInput.addEventListener("input",()=>{ r.name=nameInput.value; r.existing=findExisting(r.name,r.id); renderRows(filter); });
+      idInput.addEventListener("input",()=>{ r.id=idInput.value; r.existing=findExisting(r.name,r.id); renderRows(filter); });
+
+      resultsEl.appendChild(item);
+    });
+    updateRegisterButton();
+  }
+
+  function escapeHtml(s){
+    return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+  }
+
+  function updateRegisterButton(){
+    const count = rows.filter(r=>r.selected && !r.existing && (r.name||r.id)).length;
+    const b = $("registerSelectedBtn");
+    b.disabled = count===0;
+    b.textContent = count ? `選択した ${count}人を登録` : "選択した人を登録";
+  }
+
+  async function insertOne(r){
+    const payload = {
+      hunter_name:r.name.trim(),
+      hunter_id:r.id.trim(),
+      reporter:reporterName.value.trim(),
+      rating:3,
+      status:"普通",
+      notes:"メンバーリスト画像から登録"
+    };
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/hunters`, {
+      method:"POST",
+      headers:{apikey:SUPABASE_KEY,"Content-Type":"application/json","Prefer":"return=minimal"},
+      body:JSON.stringify(payload)
+    });
+    if(!res.ok) throw new Error(await res.text());
+  }
+
+  fileEl.addEventListener("change", e=>{
+    const file=e.target.files?.[0];
+    if(!file) return;
+    const url=URL.createObjectURL(file);
+    const img=new Image();
+    img.onload=()=>{
+      image=img;
+      const ratio=img.naturalWidth/img.naturalHeight;
+      preview.innerHTML="";
+      const pv=document.createElement("img");
+      pv.src=url;
+      preview.appendChild(pv);
+      analyzeBtn.disabled=false;
+      if(Math.abs(ratio-(16/9))>0.015){
+        setProgress(0,`注意：画像サイズ ${img.naturalWidth}×${img.naturalHeight} は16:9ではありません`);
+      }else{
+        setProgress(0,`画像 ${img.naturalWidth}×${img.naturalHeight} を読み込みました`);
+      }
+    };
+    img.onerror=()=>{ setProgress(0,"画像を読み込めませんでした"); };
+    img.src=url;
+  });
+
+  analyzeBtn.addEventListener("click", recognizeRows);
+  $("showAllBtn").addEventListener("click",()=>renderRows("all"));
+  $("showRegisteredBtn").addEventListener("click",()=>renderRows("registered"));
+  $("selectNewBtn").addEventListener("click",()=>{
+    rows.forEach(r=>{if(!r.existing && (r.name||r.id))r.selected=true;});
+    renderRows("all");
+  });
+
+  $("registerSelectedBtn").addEventListener("click",async()=>{
+    const selected=rows.filter(r=>r.selected&&!r.existing&&(r.name||r.id));
+    if(!selected.length)return;
+    if(!confirm(`${selected.length}人を共有DBへ登録しますか？`))return;
+    const btn=$("registerSelectedBtn");
+    btn.disabled=true;
+    try{
+      for(let i=0;i<selected.length;i++){
+        setProgress((i/selected.length)*100,`${i+1} / ${selected.length} 人を登録中…`);
+        await insertOne(selected[i]);
+      }
+      await loadCloud();
+      rows.forEach(r=>{r.existing=findExisting(r.name,r.id);r.selected=false;});
+      renderRows("all");
+      setProgress(100,`${selected.length}人を登録しました`);
+    }catch(err){
+      console.error(err);
+      alert("登録中にエラーが発生しました。読み取り内容とSupabase設定を確認してください。");
+    }finally{
+      updateRegisterButton();
+    }
+  });
+
+  loadCloud();
+})();
+</script>
+</body>
+</html>
