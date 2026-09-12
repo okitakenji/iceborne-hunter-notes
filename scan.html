@@ -101,7 +101,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 <div class="wrap">
   <div class="topbar">
     <a class="back" href="./index.html">← Hunter Notesへ戻る</a>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="pill">OCR build v17</div><div class="pill" id="dbStatus">共有DB 接続確認中</div></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="pill">OCR build v18</div><div class="pill" id="dbStatus">共有DB 接続確認中</div></div>
   </div>
 
   <section class="hero">
@@ -650,12 +650,12 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   async function recognizeIdMulti(worker,img,y){
     // More raw passes around the left edge are important for 0/O/l/I/B/8.
     const variants=[
-      [0.284,"raw"],
-      [0.288,"raw"],
       [0.292,"raw"],
+      [0.294,"raw"],
       [0.296,"raw"],
-      [0.288,"threshold"],
-      [0.292,"contrast"]
+      [0.300,"raw"],
+      [0.294,"threshold"],
+      [0.300,"contrast"]
     ];
 
     const found=[];
