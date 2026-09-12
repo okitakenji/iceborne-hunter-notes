@@ -37,12 +37,15 @@
 
   <section class="timeline">
     <article class="entry">
-      <div class="entry-head"><div class="version">v1.14</div><div class="date">2026-09-12</div></div>
-      <h2>iPhone実機OCR診断モードを追加</h2>
+      <div class="entry-head"><div class="version">v1.15</div><div class="date">2026-09-12</div></div>
+      <h2>スクショ登録を「確認優先モード」へ変更</h2>
       <ul>
-        <li>各行の名前・オンラインIDについて、Tesseract.jsが実際に返した全候補と信頼度を記録</li>
-        <li>「診断結果をコピー」ボタンから実機のOCRログを取得可能に変更</li>
-        <li>PC側の別OCRではなく、iPhone Safari上の実出力を基準に次回調整できるよう改善</li>
+        <li>未登録ハンターのOCR結果を入力欄へ自動確定しないよう変更</li>
+        <li>各ハンターの元スクリーンショット行をカード内に表示し、実画像を見ながら確認可能に変更</li>
+        <li>OCRした名前・オンラインIDは「候補を使う」ボタンから任意で入力可能</li>
+        <li>未登録ハンターは名前・IDを確認して「この内容で確定」するまで登録不可</li>
+        <li>登録済み検索はオンラインIDの1文字OCR誤りまでDB照合して正式情報を表示</li>
+        <li>OCR精度の自動合格判定を廃止し、誤登録防止を優先</li>
       </ul>
     </article>
 

@@ -86,6 +86,15 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 .result .field input{min-height:39px;padding:8px 9px;font-size:14px}
 .status{white-space:nowrap}
 .existing{grid-column:2 / -1;font-size:11px;color:var(--muted);margin-top:-2px}
+.row-shot-wrap{grid-column:1 / -1;border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;background:#02050a;cursor:zoom-in}
+.row-shot{display:block;width:100%;height:auto}
+.suggestions{grid-column:2 / -1;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.suggestion-label{font-size:11px;color:var(--muted);margin-right:2px}
+.suggestion-btn{min-height:32px;padding:0 9px;border:1px solid rgba(34,231,255,.22);background:rgba(34,231,255,.06);color:#dffbff;border-radius:10px;cursor:pointer}
+.suggestion-btn:hover{border-color:rgba(34,231,255,.5)}
+.result.zoomed .row-shot{width:180%;max-width:none}
+.result.zoomed .row-shot-wrap{overflow:auto;cursor:zoom-out}
+.confirm-entry{min-height:34px;padding:0 11px;margin-left:8px}
 .hidden{display:none!important}
 .notice{border:1px solid rgba(255,211,107,.18);background:rgba(255,211,107,.06);color:#ffe2a5;border-radius:12px;padding:10px 11px;font-size:12px;line-height:1.6;margin-top:10px}
 @media(max-width:850px){.grid{grid-template-columns:1fr}}
@@ -101,7 +110,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 <div class="wrap">
   <div class="topbar">
     <a class="back" href="./index.html">← Hunter Notesへ戻る</a>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="pill">OCR build v19 diagnostic</div><div class="pill" id="dbStatus">共有DB 接続確認中</div></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="pill">OCR build v20 reliable</div><div class="pill" id="dbStatus">共有DB 接続確認中</div></div>
   </div>
 
   <section class="hero">
@@ -139,7 +148,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 
     <section class="card">
       <h2>2. 読み取り結果</h2>
-      <div class="sub">先頭行（自分のハンター）は除外し、2〜15行目を読み取ります。オンラインIDを照合の基準にします。登録済みならDBの正式な名前・IDを緑色で表示します。未登録の名前OCRは候補扱いで、確認するまで登録できません。初期状態では誰も選択されません。OCR結果が怪しい候補は「要確認」として自動選択の対象外になります。オンラインIDが既存DBと一致した場合は、OCR結果よりDBに保存済みの名前・IDを優先して表示します。検索用途では「登録済みだけ」を押すと、スクショ内の既登録ハンターだけ確認できます。</div>
+      <div class="sub">先頭行（自分のハンター）は除外し、2〜15行目を読み取ります。登録済み検索はオンラインIDを基準にし、DBの正式な名前・IDを表示します。未登録ハンターについてはOCR結果を「候補」としてだけ表示し、入力欄へ勝手に確定しません。各行に元スクショの切り抜きを表示するので、画像を見て確認・修正してから登録できます。初期状態では誰も選択されません。</div>
 
       <div class="summary" style="margin-top:13px">
         <span class="pill" id="totalBadge">候補 0</span>
@@ -151,14 +160,12 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
         <button type="button" class="btn" id="showAllBtn">すべて表示</button>
         <button type="button" class="btn" id="showRegisteredBtn">登録済みだけ</button>
         <button type="button" class="btn" id="selectNewBtn">未登録を全選択</button>
-        <button type="button" class="btn" id="copyDiagnosticsBtn" disabled>診断結果をコピー</button>
         <button type="button" class="btn btn-primary" id="registerSelectedBtn" disabled>選択した人を登録</button>
       </div>
 
       <div class="results" id="results">
         <div class="sub">解析するとここに候補が表示されます。</div>
       </div>
-      <textarea id="diagnosticsText" class="hidden" readonly style="width:100%;min-height:220px;margin-top:12px;background:#030910;color:#dff7ff;border:1px solid var(--line);border-radius:12px;padding:10px;font-family:ui-monospace,monospace;font-size:11px"></textarea>
     </section>
   </div>
 </div>
@@ -192,7 +199,6 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   let image = null;
   let cloudHunters = [];
   let rows = [];
-  let ocrDiagnostics = [];
 
   function norm(s){
     return String(s || "")
@@ -253,14 +259,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   }
 
   function recomputeReview(r){
-    r.needsReview =
-      !r.existing &&
-      (
-        !r.nameConfirmed ||
-        !r.id ||
-        idLooksSuspicious(r.id) ||
-        nameLooksSuspicious(r.name)
-      );
+    r.needsReview = !r.existing && !r.entryConfirmed;
   }
 
   async function loadCloud(){
@@ -303,7 +302,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
         const fuzzy = cloudHunters.find(h => {
           const hi = norm(h.hunter_id);
           if(!hi || hi.length < 6 || Math.abs(hi.length-ni.length) > 1) return false;
-          return levenshtein(hi,ni) <= (ni.length >= 10 ? 2 : 1);
+          return levenshtein(hi,ni) <= 1;
         });
         if(fuzzy) return fuzzy;
       }
@@ -447,6 +446,25 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   }
 
 
+  function makeRowPreview(img,yCenter){
+    // Crop the useful part of one member row from the original 4K image.
+    // This is the ground truth the user can visually verify on iPhone.
+    const x1=0.073;
+    const x2=0.410;
+    const h=ROW_H*1.18;
+    const sx=Math.round(img.naturalWidth*x1);
+    const sw=Math.round(img.naturalWidth*(x2-x1));
+    const sh=Math.round(img.naturalHeight*h);
+    const sy=Math.max(0,Math.round(img.naturalHeight*yCenter-sh/2));
+
+    const c=document.createElement("canvas");
+    c.width=sw;
+    c.height=sh;
+    const ctx=c.getContext("2d");
+    ctx.drawImage(img,sx,sy,sw,sh,0,0,sw,sh);
+    return c.toDataURL("image/jpeg",0.94);
+  }
+
   function cropRawCanvas(img,x1,x2,yCenter,hRatio,mode="raw"){
     const sx=Math.round(img.naturalWidth*x1);
     const sw=Math.round(img.naturalWidth*(x2-x1));
@@ -563,22 +581,19 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
     ];
 
     const found=[];
-    const debug=[];
     for(const [x1,x2,mode] of variants){
       const rr=await worker.recognize(
         cropRawCanvas(img,x1,x2,y,ROW_H,mode)
       );
-      const raw=String(rr.data.text||"").replace(/[\r\n]+/g," ").trim();
-      const name=tidyNameCandidate(raw);
-      const confidence=Number(rr.data.confidence||0);
-      debug.push({x1,x2,mode,raw,cleaned:name,confidence});
+      const name=tidyNameCandidate(rr.data.text);
       if(name){
-        found.push({name,confidence});
+        found.push({
+          name,
+          confidence:Number(rr.data.confidence||0)
+        });
       }
     }
-
-    const chosen=chooseNameConsensus(found);
-    return {...chosen,debug};
+    return chooseNameConsensus(found);
   }
 
   function tidyIdCandidate(v){
@@ -654,6 +669,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   }
 
   async function recognizeIdMulti(worker,img,y){
+    // More raw passes around the left edge are important for 0/O/l/I/B/8.
     const variants=[
       [0.292,"raw"],
       [0.294,"raw"],
@@ -664,30 +680,27 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
     ];
 
     const found=[];
-    const debug=[];
     for(const [x1,mode] of variants){
       const rr=await worker.recognize(
         cropRawCanvas(img,x1,0.405,y,ROW_H,mode)
       );
-      const raw=String(rr.data.text||"").replace(/[\r\n]+/g," ").trim();
-      const confidence=Number(rr.data.confidence||0);
-      const tokens=raw
+      const tokens=String(rr.data.text||"")
         .split(/\s+/)
         .map(tidyIdCandidate)
         .filter(v=>v.length>=3);
 
-      debug.push({x1,mode,raw,tokens,confidence});
-
       for(const id of tokens){
-        found.push({id,confidence});
+        found.push({
+          id,
+          confidence:Number(rr.data.confidence||0)
+        });
       }
     }
 
     if(!found.length) return {
       id:"",
       confidence:0,
-      agreement:0,
-      debug
+      agreement:0
     };
 
     const seed=idMedoid(found);
@@ -699,9 +712,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
     return {
       id,
       confidence:Number(seed.confidence||0),
-      agreement:exactCount/found.length,
-      seed:seed.id,
-      debug
+      agreement:exactCount/found.length
     };
   }
 
@@ -709,9 +720,6 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
     if(!image) return;
     analyzeBtn.disabled=true;
     rows=[];
-    ocrDiagnostics=[];
-    $("copyDiagnosticsBtn").disabled=true;
-    $("diagnosticsText").classList.add("hidden");
     resultsEl.innerHTML='<div class="sub">OCRを準備しています…</div>';
     setProgress(2,"OCRエンジンを準備しています…");
 
@@ -740,57 +748,31 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
           recognizeIdMulti(idWorker,image,y)
         ]);
 
-        let name=nameResult.name||"";
-        let id=idResult.id||"";
+        const nameSuggestion=nameResult.name||"";
+        const idSuggestion=idResult.id||"";
 
-        const existing=findExisting(name,id);
-        if(existing){
-          name=existing.hunter_name||name;
-          id=existing.hunter_id||id;
-        }
-
-        const needsReview=!existing&&(
-          !id ||
-          !name ||
-          Number(nameResult.confidence||0)<22 ||
-          Number(idResult.confidence||0)<22 ||
-          Number(idResult.agreement||0)<0.15 ||
-          idLooksSuspicious(id) ||
-          nameLooksSuspicious(name)
-        );
-
-        ocrDiagnostics.push({
-          row:rowIndex+1,
-          y,
-          chosen:{
-            name,
-            id,
-            existing:Boolean(existing),
-            nameConfidence:Number(nameResult.confidence||0),
-            idConfidence:Number(idResult.confidence||0),
-            idAgreement:Number(idResult.agreement||0),
-            idSeed:idResult.seed||""
-          },
-          nameVariants:nameResult.debug||[],
-          idVariants:idResult.debug||[]
-        });
+        const existing=findExisting(nameSuggestion,idSuggestion);
+        const name=existing ? (existing.hunter_name||nameSuggestion) : "";
+        const id=existing ? (existing.hunter_id||idSuggestion) : "";
 
         rows.push({
           row:rowIndex+1,
           name,
           id,
+          nameSuggestion,
+          idSuggestion,
           existing,
+          preview:makeRowPreview(image,y),
           nameConfidence:Number(nameResult.confidence||0),
           idConfidence:Number(idResult.confidence||0),
           idAgreement:Number(idResult.agreement||0),
-          needsReview: existing ? false : true,
-          nameConfirmed: Boolean(existing),
+          entryConfirmed:Boolean(existing),
+          needsReview:!existing,
           selected:false
         });
       }
 
       renderRows();
-      $("copyDiagnosticsBtn").disabled=false;
       setProgress(100,`解析完了：${rows.length}人の候補を検出しました`);
     }catch(err){
       console.error(err);
@@ -805,103 +787,141 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 
   function refreshMatches(){
     rows.forEach(r => {
-      r.existing = findExisting(r.name,r.id);
-      recomputeReview(r);
-      if(r.existing) r.selected = false;
+      const lookupName=r.name||r.nameSuggestion||"";
+      const lookupId=r.id||r.idSuggestion||"";
+      const match=findExisting(lookupName,lookupId);
+
+      if(match){
+        r.existing=match;
+        r.name=match.hunter_name||r.name||r.nameSuggestion||"";
+        r.id=match.hunter_id||r.id||r.idSuggestion||"";
+        r.entryConfirmed=true;
+        r.needsReview=false;
+        r.selected=false;
+      }else{
+        r.existing=null;
+        recomputeReview(r);
+      }
     });
   }
 
   function renderRows(filter="all"){
     refreshMatches();
-    const registered = rows.filter(r=>r.existing).length;
-    const newCount = rows.length-registered;
-    $("totalBadge").textContent = `候補 ${rows.length}`;
-    $("registeredBadge").textContent = `登録済み ${registered}`;
-    $("newBadge").textContent = `未登録 ${newCount}`;
+    const registered=rows.filter(r=>r.existing).length;
+    const newCount=rows.length-registered;
+    $("totalBadge").textContent=`候補 ${rows.length}`;
+    $("registeredBadge").textContent=`登録済み ${registered}`;
+    $("newBadge").textContent=`未登録 ${newCount}`;
 
-    const shown = filter === "registered" ? rows.filter(r=>r.existing) : rows;
+    const shown=filter==="registered" ? rows.filter(r=>r.existing) : rows;
 
     if(!shown.length){
-      resultsEl.innerHTML = `<div class="sub">${filter==="registered" ? "このスクショ内に登録済みハンターは見つかりませんでした。" : "候補がありません。"}</div>`;
-      $("registerSelectedBtn").disabled = true;
+      resultsEl.innerHTML=`<div class="sub">${filter==="registered" ? "このスクショ内に登録済みハンターは見つかりませんでした。" : "候補がありません。"}</div>`;
+      $("registerSelectedBtn").disabled=true;
       return;
     }
 
-    resultsEl.innerHTML = "";
-    shown.forEach(r => {
-      const item = document.createElement("div");
-      item.className = `result ${r.existing ? "registered" : ""}`;
-      item.dataset.row = String(r.row);
+    resultsEl.innerHTML="";
+    shown.forEach(r=>{
+      const item=document.createElement("div");
+      item.className=`result ${r.existing ? "registered" : ""}`;
+      item.dataset.row=String(r.row);
 
-      item.innerHTML = `
-        <input type="checkbox" ${r.selected ? "checked" : ""} ${(r.existing || r.needsReview) ? "disabled" : ""} aria-label="${r.row}行目を登録">
-        <div class="field"><input class="name" value="${escapeHtml(r.name)}" placeholder="ハンター名"></div>
-        <div class="field"><input class="hid" value="${escapeHtml(r.id)}" placeholder="オンラインID"></div>
+      const suggestionHtml=r.existing ? "" : `
+        <div class="suggestions">
+          <span class="suggestion-label">OCR候補：</span>
+          ${r.nameSuggestion ? `<button type="button" class="suggestion-btn use-name">名前「${escapeHtml(r.nameSuggestion)}」を使う</button>` : ""}
+          ${r.idSuggestion ? `<button type="button" class="suggestion-btn use-id">ID「${escapeHtml(r.idSuggestion)}」を使う</button>` : ""}
+        </div>`;
+
+      item.innerHTML=`
+        <div class="row-shot-wrap" title="タップで拡大"><img class="row-shot" src="${r.preview}" alt="${r.row}行目の元スクショ"></div>
+        <input type="checkbox" ${r.selected ? "checked" : ""} ${(r.existing||r.needsReview) ? "disabled" : ""} aria-label="${r.row}行目を登録">
+        <div class="field"><input class="name" value="${escapeHtml(r.name)}" placeholder="${r.existing ? "ハンター名" : "画像を見てハンター名を入力"}" ${r.existing ? "readonly" : ""}></div>
+        <div class="field"><input class="hid" value="${escapeHtml(r.id)}" placeholder="${r.existing ? "オンラインID" : "画像を見てオンラインIDを入力"}" ${r.existing ? "readonly" : ""}></div>
         <div class="status">
-          <span class="pill ${r.existing ? "good" : (r.needsReview ? "bad" : "warn")}">${r.existing ? "登録済み" : (r.needsReview ? "名前確認" : "未登録")}</span>
-          ${(!r.existing && r.needsReview) ? `<button type="button" class="btn confirm-name" style="min-height:34px;padding:0 10px;margin-left:8px">この名前で確定</button>` : ""}
+          <span class="pill ${r.existing ? "good" : (r.needsReview ? "bad" : "warn")}">${r.existing ? "登録済み" : (r.needsReview ? "未確認" : "登録準備OK")}</span>
+          ${(!r.existing) ? `<button type="button" class="btn confirm-entry" ${(!r.name||!r.id) ? "disabled" : ""}>この内容で確定</button>` : ""}
         </div>
+        ${suggestionHtml}
         ${r.existing
           ? `<div class="existing">登録情報：${escapeHtml(r.existing.hunter_name||"")} / ${escapeHtml(r.existing.hunter_id||"")}　報告者：${escapeHtml(r.existing.reporter||"—")}　評価：${escapeHtml(String(r.existing.rating||"—"))}</div>`
-          : `<div class="existing">オンラインIDを優先して読み取っています。名前はOCR候補なので、正しいことを確認してから確定してください。</div>`}
+          : `<div class="existing">上の切り抜き画像が正解です。OCR候補は参考用で、候補を押しても「この内容で確定」するまでは登録対象になりません。</div>`}
       `;
 
-      const checkbox = item.querySelector('input[type="checkbox"]');
-      const nameInput = item.querySelector(".name");
-      const idInput = item.querySelector(".hid");
-      const confirmNameBtn = item.querySelector(".confirm-name");
+      const checkbox=item.querySelector('input[type="checkbox"]');
+      const nameInput=item.querySelector(".name");
+      const idInput=item.querySelector(".hid");
+      const confirmBtn=item.querySelector(".confirm-entry");
+      const useName=item.querySelector(".use-name");
+      const useId=item.querySelector(".use-id");
+      const shot=item.querySelector(".row-shot-wrap");
+
+      shot?.addEventListener("click",()=>{
+        item.classList.toggle("zoomed");
+      });
 
       checkbox?.addEventListener("change",()=>{
-        r.selected = checkbox.checked && !r.needsReview;
-        checkbox.checked = r.selected;
+        r.selected=checkbox.checked&&!r.needsReview;
+        checkbox.checked=r.selected;
         updateRegisterButton();
       });
 
-      nameInput.addEventListener("input",()=>{
+      nameInput?.addEventListener("input",()=>{
+        if(r.existing) return;
         r.name=nameInput.value;
-        if(!r.existing){
-          r.nameConfirmed=false;
-          r.selected=false;
-        }
+        r.entryConfirmed=false;
+        r.selected=false;
+        r.needsReview=true;
+        if(confirmBtn) confirmBtn.disabled=!(r.name.trim()&&r.id.trim());
       });
 
-      idInput.addEventListener("input",()=>{
+      idInput?.addEventListener("input",()=>{
+        if(r.existing) return;
         r.id=idInput.value;
-        if(!r.existing){
-          r.selected=false;
-        }
+        r.entryConfirmed=false;
+        r.selected=false;
+        r.needsReview=true;
+        if(confirmBtn) confirmBtn.disabled=!(r.name.trim()&&r.id.trim());
       });
 
-      nameInput.addEventListener("change",()=>{
-        r.existing=findExisting(r.name,r.id);
-        if(r.existing) r.nameConfirmed=true;
-        recomputeReview(r);
+      useName?.addEventListener("click",()=>{
+        r.name=r.nameSuggestion||"";
+        r.entryConfirmed=false;
+        r.selected=false;
         renderRows(filter);
       });
 
-      idInput.addEventListener("change",()=>{
-        r.existing=findExisting(r.name,r.id);
-        if(r.existing) r.nameConfirmed=true;
-        recomputeReview(r);
+      useId?.addEventListener("click",()=>{
+        r.id=r.idSuggestion||"";
+        r.entryConfirmed=false;
+        r.selected=false;
         renderRows(filter);
       });
 
-      confirmNameBtn?.addEventListener("click",()=>{
-        r.existing=findExisting(r.name,r.id);
-        if(r.existing){
-          r.name=r.existing.hunter_name||r.name;
-          r.id=r.existing.hunter_id||r.id;
-          r.nameConfirmed=true;
+      confirmBtn?.addEventListener("click",()=>{
+        const n=r.name.trim();
+        const i=r.id.trim();
+        if(!n||!i) return;
+
+        const existing=findExisting(n,i);
+        if(existing){
+          r.existing=existing;
+          r.name=existing.hunter_name||n;
+          r.id=existing.hunter_id||i;
+          r.entryConfirmed=true;
           r.needsReview=false;
+          r.selected=false;
         }else{
-          r.nameConfirmed=true;
-          recomputeReview(r);
+          r.entryConfirmed=true;
+          r.needsReview=false;
         }
         renderRows(filter);
       });
 
       resultsEl.appendChild(item);
     });
+
     updateRegisterButton();
   }
 
@@ -962,36 +982,11 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   $("selectNewBtn").addEventListener("click",()=>{
     rows.forEach(r=>{
       recomputeReview(r);
-      if(!r.existing && !r.needsReview && r.nameConfirmed && (r.name||r.id)){
+      if(!r.existing && !r.needsReview && r.entryConfirmed && r.name && r.id){
         r.selected=true;
       }
     });
     renderRows("all");
-  });
-
-  $("copyDiagnosticsBtn").addEventListener("click",async()=>{
-    const payload={
-      build:"v19-diagnostic",
-      image:{
-        width:image?.naturalWidth||0,
-        height:image?.naturalHeight||0
-      },
-      userAgent:navigator.userAgent,
-      rows:ocrDiagnostics
-    };
-    const text=JSON.stringify(payload,null,2);
-    const area=$("diagnosticsText");
-    area.value=text;
-
-    try{
-      await navigator.clipboard.writeText(text);
-      alert("診断結果をコピーしました。ChatGPTにそのまま貼り付けてください。");
-    }catch{
-      area.classList.remove("hidden");
-      area.focus();
-      area.select();
-      alert("自動コピーできなかったので、下に診断結果を表示しました。全選択してコピーしてください。");
-    }
   });
 
   $("registerSelectedBtn").addEventListener("click",async()=>{
