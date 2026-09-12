@@ -37,6 +37,18 @@
 
   <section class="timeline">
     <article class="entry">
+      <div class="entry-head"><div class="version">v1.9</div><div class="date">2026-09-12</div></div>
+      <h2>4KメンバーリストOCRを再構築</h2>
+      <ul>
+        <li>名前とオンラインIDを同一行から個別に読み取る方式へ再構築</li>
+        <li>オンラインIDは横位置を3通り試し、OCR信頼度が最も高い候補を採用</li>
+        <li>名前は複数の切り出し幅を比較し、武器アイコン由来のノイズを除去</li>
+        <li>登録済みIDは共有DBの正式な名前・IDを優先表示</li>
+        <li>初期選択なし・要確認候補の保護は維持</li>
+      </ul>
+    </article>
+
+    <article class="entry">
       <div class="entry-head"><div class="version">v1.8</div><div class="date">2026-09-12</div></div>
       <h2>OCR方式を安定版へ戻して再調整</h2>
       <ul>
