@@ -101,7 +101,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 <div class="wrap">
   <div class="topbar">
     <a class="back" href="./index.html">← Hunter Notesへ戻る</a>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="pill">OCR build v16</div><div class="pill" id="dbStatus">共有DB 接続確認中</div></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="pill">OCR build v17</div><div class="pill" id="dbStatus">共有DB 接続確認中</div></div>
   </div>
 
   <section class="hero">
@@ -483,65 +483,96 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   }
 
   function tidyNameCandidate(v){
-    v=cleanText(v)
+    v=String(v||"")
+      .normalize("NFKC")
+      .replace(/[\r\n]+/g," ")
       .replace(/\s+/g," ")
-      // Common UI/weapon-icon OCR garbage at the left edge.
-      .replace(/^\s*[><＜＞≫»›→⇒&@#|"'`~:;・。]+/u,"")
-      .replace(/^[プヾ]\s+(?=\S)/u,"")
       .trim();
 
-    // Tesseract often inserts spaces between Japanese glyphs.
-    v=v.replace(/([\u3040-\u30ff\u3400-\u9fff])\s+(?=[\u3040-\u30ff\u3400-\u9fff])/gu,"$1");
+    // Remove only obvious UI/weapon-icon garbage. Keep kaomoji/name symbols.
+    v=v
+      .replace(/^\s*[→⇒≫»›]+\s*/u,"")
+      .replace(/^\s*[|｜]+\s*/u,"")
+      .trim();
+
+    // Preserve common name/kaomoji characters:
+    // Japanese, Latin, Greek, digits and punctuation such as ()<>^_-・´｀ω etc.
+    v=v.replace(
+      /[^\p{L}\p{N}\p{M}\p{P}\p{S}\sぁ-んァ-ヶ一-龠々ー]/gu,
+      ""
+    );
+
+    // Tesseract often inserts spaces between CJK glyphs.
+    v=v.replace(
+      /([\u3040-\u30ff\u3400-\u9fff])\s+(?=[\u3040-\u30ff\u3400-\u9fff])/gu,
+      "$1"
+    );
+
     return v.trim();
   }
 
-  function nameCandidateRank(name,confidence,count){
-    let rank=Number(confidence||0)+(count-1)*14;
-    if(!name) return -999;
-    if(name.length>28) rank-=35;
-    if(/^[A-Za-z]{1,2}\s/.test(name)) rank-=18;
-    if(/[ー\-]{3,}/.test(name)) rank-=18;
-    if(/^[><＜＞]/u.test(name)) rank-=30;
-    return rank;
+  function levenshteinText(a,b){
+    a=Array.from(String(a||""));
+    b=Array.from(String(b||""));
+    const prev=Array(b.length+1).fill(0).map((_,i)=>i);
+    for(let i=1;i<=a.length;i++){
+      const cur=[i];
+      for(let j=1;j<=b.length;j++){
+        cur[j]=Math.min(
+          cur[j-1]+1,
+          prev[j]+1,
+          prev[j-1]+(a[i-1]===b[j-1]?0:1)
+        );
+      }
+      for(let j=0;j<cur.length;j++) prev[j]=cur[j];
+    }
+    return prev[b.length];
+  }
+
+  function chooseNameConsensus(found){
+    if(!found.length) return {name:"",confidence:0};
+
+    // Choose the medoid: candidate closest to all other OCR passes.
+    let best=null;
+    for(const item of found){
+      let dist=0;
+      for(const other of found){
+        dist+=levenshteinText(item.name,other.name);
+      }
+      let rank=-dist*12 + Number(item.confidence||0);
+      if(!item.name) rank-=100;
+      if(item.name.length>32) rank-=35;
+      if(/^[→⇒≫»›|｜]/u.test(item.name)) rank-=30;
+      if(!best || rank>best.rank){
+        best={...item,rank};
+      }
+    }
+    return {name:best.name,confidence:Number(best.confidence||0)};
   }
 
   async function recognizeNameMulti(worker,img,y){
-    // Four passes, but with different crops/preprocessing rather than four near-identical OCRs.
     const variants=[
-      [0.083,0.190,"threshold"],
-      [0.090,0.190,"contrast"],
-      [0.095,0.190,"raw"],
-      [0.090,0.182,"raw"]
+      [0.080,0.190,"raw"],
+      [0.084,0.190,"threshold"],
+      [0.088,0.190,"contrast"],
+      [0.092,0.190,"raw"],
+      [0.088,0.184,"raw"]
     ];
 
     const found=[];
     for(const [x1,x2,mode] of variants){
-      const rr=await worker.recognize(cropRawCanvas(img,x1,x2,y,ROW_H,mode));
+      const rr=await worker.recognize(
+        cropRawCanvas(img,x1,x2,y,ROW_H,mode)
+      );
       const name=tidyNameCandidate(rr.data.text);
       if(name){
-        found.push({name,confidence:Number(rr.data.confidence||0)});
+        found.push({
+          name,
+          confidence:Number(rr.data.confidence||0)
+        });
       }
     }
-
-    if(!found.length) return {name:"",confidence:0};
-
-    const groups=new Map();
-    for(const item of found){
-      const key=item.name.normalize("NFKC");
-      const g=groups.get(key)||{name:item.name,count:0,bestConfidence:0};
-      g.count++;
-      g.bestConfidence=Math.max(g.bestConfidence,item.confidence);
-      groups.set(key,g);
-    }
-
-    let best={name:"",confidence:0,rank:-999};
-    for(const g of groups.values()){
-      const rank=nameCandidateRank(g.name,g.bestConfidence,g.count);
-      if(rank>best.rank){
-        best={name:g.name,confidence:g.bestConfidence,rank};
-      }
-    }
-    return best;
+    return chooseNameConsensus(found);
   }
 
   function tidyIdCandidate(v){
@@ -550,53 +581,118 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
       .replace(/[._-]{2,}$/,"");
   }
 
-  function idCandidateRank(id,confidence,count){
-    let rank=Number(confidence||0)+(count-1)*15;
+  function idCandidateRank(id,confidence){
+    let rank=Number(confidence||0);
     if(id.length<3||id.length>20) rank-=60;
     if(!/[A-Za-z]/.test(id)) rank-=25;
     if(/[_.-]{3,}/.test(id)) rank-=25;
     return rank;
   }
 
+  function idMedoid(found){
+    let best=null;
+    for(const item of found){
+      let dist=0;
+      for(const other of found){
+        dist+=levenshteinText(
+          item.id.toLowerCase(),
+          other.id.toLowerCase()
+        );
+      }
+      const rank=idCandidateRank(item.id,item.confidence)-dist*10;
+      if(!best||rank>best.rank) best={...item,rank};
+    }
+    return best;
+  }
+
+  function charConsensus(found,seed){
+    // Only combine candidates with the same length as the medoid.
+    const same=found.filter(x=>x.id.length===seed.id.length);
+    if(same.length<2) return seed.id;
+
+    let out="";
+    for(let i=0;i<seed.id.length;i++){
+      const votes=new Map();
+      for(const item of same){
+        const ch=item.id[i];
+        const key=ch.toLowerCase();
+        const old=votes.get(key)||{
+          chars:new Map(),
+          weight:0
+        };
+        const w=Math.max(1,Number(item.confidence||0));
+        old.weight+=w;
+        old.chars.set(ch,(old.chars.get(ch)||0)+w);
+        votes.set(key,old);
+      }
+
+      let bestKey=null,bestVote=null;
+      for(const [key,vote] of votes){
+        if(!bestVote||vote.weight>bestVote.weight){
+          bestKey=key;bestVote=vote;
+        }
+      }
+
+      // Preserve case from the most strongly supported original char.
+      let bestChar=seed.id[i];
+      let bestCharWeight=-1;
+      for(const [ch,w] of bestVote.chars){
+        if(w>bestCharWeight){
+          bestChar=ch;
+          bestCharWeight=w;
+        }
+      }
+      out+=bestChar;
+    }
+    return out;
+  }
+
   async function recognizeIdMulti(worker,img,y){
+    // More raw passes around the left edge are important for 0/O/l/I/B/8.
     const variants=[
-      [0.294,"raw"],
-      [0.300,"threshold"],
-      [0.306,"contrast"]
+      [0.284,"raw"],
+      [0.288,"raw"],
+      [0.292,"raw"],
+      [0.296,"raw"],
+      [0.288,"threshold"],
+      [0.292,"contrast"]
     ];
 
     const found=[];
     for(const [x1,mode] of variants){
-      const rr=await worker.recognize(cropRawCanvas(img,x1,0.405,y,ROW_H,mode));
+      const rr=await worker.recognize(
+        cropRawCanvas(img,x1,0.405,y,ROW_H,mode)
+      );
       const tokens=String(rr.data.text||"")
         .split(/\s+/)
         .map(tidyIdCandidate)
         .filter(v=>v.length>=3);
 
       for(const id of tokens){
-        found.push({id,confidence:Number(rr.data.confidence||0)});
+        found.push({
+          id,
+          confidence:Number(rr.data.confidence||0)
+        });
       }
     }
 
-    if(!found.length) return {id:"",confidence:0};
+    if(!found.length) return {
+      id:"",
+      confidence:0,
+      agreement:0
+    };
 
-    const groups=new Map();
-    for(const item of found){
-      const key=item.id.toLowerCase();
-      const g=groups.get(key)||{id:item.id,count:0,bestConfidence:0};
-      g.count++;
-      g.bestConfidence=Math.max(g.bestConfidence,item.confidence);
-      groups.set(key,g);
-    }
+    const seed=idMedoid(found);
+    const id=charConsensus(found,seed);
+    const exactCount=found.filter(
+      x=>x.id.toLowerCase()===id.toLowerCase()
+    ).length;
 
-    let best={id:"",confidence:0,rank:-999};
-    for(const g of groups.values()){
-      const rank=idCandidateRank(g.id,g.bestConfidence,g.count);
-      if(rank>best.rank){
-        best={id:g.id,confidence:g.bestConfidence,rank};
-      }
-    }
-    return best;
+    return {
+      id,
+      confidence:Number(seed.confidence||0),
+      agreement:exactCount/found.length
+    };
   }
 
   async function recognizeRows(){
@@ -608,7 +704,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 
     let nameWorker,idWorker;
     try{
-      nameWorker=await Tesseract.createWorker("jpn+eng",1,{
+      nameWorker=await Tesseract.createWorker("jpn+eng+ell",1,{
         logger:m=>{if(m.status==="loading language traineddata")setProgress(4+Math.round((m.progress||0)*6),"日本語データを読み込んでいます…");}
       });
       idWorker=await Tesseract.createWorker("eng");
@@ -645,6 +741,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
           !name ||
           Number(nameResult.confidence||0)<22 ||
           Number(idResult.confidence||0)<22 ||
+          Number(idResult.agreement||0)<0.15 ||
           idLooksSuspicious(id) ||
           nameLooksSuspicious(name)
         );
@@ -656,6 +753,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
           existing,
           nameConfidence:Number(nameResult.confidence||0),
           idConfidence:Number(idResult.confidence||0),
+          idAgreement:Number(idResult.agreement||0),
           needsReview: existing ? false : true,
           nameConfirmed: Boolean(existing),
           selected:false

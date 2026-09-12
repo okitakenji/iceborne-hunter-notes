@@ -37,6 +37,18 @@
 
   <section class="timeline">
     <article class="entry">
+      <div class="entry-head"><div class="version">v1.12</div><div class="date">2026-09-12</div></div>
+      <h2>ID誤認識と顔文字名の読み取りを改善</h2>
+      <ul>
+        <li>オンラインIDを6パターンで読み取り、文字単位の多数決で0/O/l/I/8/Bなどの誤認識を軽減</li>
+        <li>完全一致文字列だけではなく、複数OCR候補の距離を比較して代表候補を選ぶ方式へ変更</li>
+        <li>名前OCRにギリシャ語モデルを追加し、ωなどを含む顔文字系の名前に対応しやすく改善</li>
+        <li>名前の記号削除を弱め、括弧・記号・顔文字をできるだけ保持するよう変更</li>
+        <li>OCR結果の一致度が低いIDは要確認扱いにして誤登録を防止</li>
+      </ul>
+    </article>
+
+    <article class="entry">
       <div class="entry-head"><div class="version">v1.11</div><div class="date">2026-09-12</div></div>
       <h2>オンラインID優先方式へ変更</h2>
       <ul>
