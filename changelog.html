@@ -37,6 +37,28 @@
 
   <section class="timeline">
     <article class="entry">
+      <div class="entry-head"><div class="version">v1.7</div><div class="date">2026-09-12</div></div>
+      <h2>スクリーンショット読み取り精度を改善</h2>
+      <ul>
+        <li>オンラインIDを列まとめ読みから「各行ごとの個別OCR」に変更</li>
+        <li>各行で上下に微調整した3候補を比較し、最も自然なIDを採用</li>
+        <li>名前とIDを同じ行座標から読むことで、行ズレを起こしにくく改善</li>
+        <li>初期状態は全員未選択のまま維持</li>
+      </ul>
+    </article>
+
+    <article class="entry">
+      <div class="entry-head"><div class="version">v1.6</div><div class="date">2026-09-12</div></div>
+      <h2>OCR候補の安全性を改善</h2>
+      <ul>
+        <li>画像解析後の初期状態を「全員未選択」に変更</li>
+        <li>不自然な名前・オンラインIDを「要確認」として判定する処理を強化</li>
+        <li>要確認候補は一括選択・登録対象から自動で除外</li>
+        <li>登録済みハンターのDB照合は従来どおり維持</li>
+      </ul>
+    </article>
+
+    <article class="entry">
       <div class="entry-head"><div class="version">v1.5</div><div class="date">2026-09-12</div></div>
       <h2>オンラインID読み取り方式を刷新</h2>
       <ul>

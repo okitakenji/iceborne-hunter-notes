@@ -139,7 +139,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
 
     <section class="card">
       <h2>2. 読み取り結果</h2>
-      <div class="sub">先頭行（自分のハンター）は除外し、2〜15行目を読み取ります。登録済みなら緑色で表示します。オンラインIDが既存DBと一致した場合は、OCR結果よりDBに保存済みの名前・IDを優先して表示します。検索用途では「登録済みだけ」を押すと、スクショ内の既登録ハンターだけ確認できます。</div>
+      <div class="sub">先頭行（自分のハンター）は除外し、2〜15行目を読み取ります。登録済みなら緑色で表示します。初期状態では誰も選択されません。OCR結果が怪しい候補は「要確認」として自動選択の対象外になります。オンラインIDが既存DBと一致した場合は、OCR結果よりDBに保存済みの名前・IDを優先して表示します。検索用途では「登録済みだけ」を押すと、スクショ内の既登録ハンターだけ確認できます。</div>
 
       <div class="summary" style="margin-top:13px">
         <span class="pill" id="totalBadge">候補 0</span>
@@ -218,6 +218,46 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
       .replace(/\s+/g,"")
       .replace(/[^A-Za-z0-9_.\-]/g,"")
       .trim();
+  }
+
+  function idLooksSuspicious(id){
+    id = String(id || "").trim();
+    if(!id) return true;
+    if(id.length < 3 || id.length > 24) return true;
+    if(/[^A-Za-z0-9_.\-]/.test(id)) return true;
+    if(/[_\.\-]{3,}/.test(id)) return true;
+
+    // Long alphabet-only OCR results are frequently noise.
+    if(/^[A-Za-z]+$/.test(id) && id.length >= 11) return true;
+
+    // Extremely OCR-ish patterns.
+    if(/^[0O]{2,}/.test(id)) return true;
+    return false;
+  }
+
+  function nameLooksSuspicious(name){
+    name = String(name || "").trim();
+    if(!name) return true;
+    if(name.length > 28) return true;
+
+    // Too many isolated spaces is a common OCR failure pattern.
+    const spaces = (name.match(/[\s　]/g) || []).length;
+    if(spaces >= 3 && name.length <= 14) return true;
+
+    // Long runs of punctuation/dashes are usually UI lines.
+    if(/[ー\-]{3,}/.test(name)) return true;
+    return false;
+  }
+
+  function recomputeReview(r){
+    r.needsReview =
+      !r.existing &&
+      (
+        !r.id ||
+        Number(r.nameConfidence || 0) < 25 ||
+        idLooksSuspicious(r.id) ||
+        nameLooksSuspicious(r.name)
+      );
   }
 
   async function loadCloud(){
@@ -339,37 +379,43 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
     return c;
   }
 
-  function cropIdColumn(img){
-    const sx=Math.round(img.naturalWidth*0.294);
-    const sy=Math.round(img.naturalHeight*0.17);
-    const sw=Math.round(img.naturalWidth*(0.405-0.294));
-    const sh=Math.round(img.naturalHeight*(0.66-0.17));
-    const scale=4;
-    const c=document.createElement("canvas");
-    c.width=sw*scale; c.height=sh*scale;
-    const ctx=c.getContext("2d",{willReadFrequently:true});
-    ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
-    const data=ctx.getImageData(0,0,c.width,c.height),d=data.data;
-    let minLum=255,maxLum=0;
-    for(let i=0;i<d.length;i+=4){
-      const lum=.299*d[i]+.587*d[i+1]+.114*d[i+2];
-      if(lum<minLum)minLum=lum;if(lum>maxLum)maxLum=lum;
-    }
-    const range=Math.max(1,maxLum-minLum);
-    for(let i=0;i<d.length;i+=4){
-      const lum=.299*d[i]+.587*d[i+1]+.114*d[i+2];
-      const n=Math.max(0,Math.min(255,((lum-minLum)/range)*255));
-      const v=n<80?255:0;
-      d[i]=d[i+1]=d[i+2]=v;d[i+3]=255;
-    }
-    ctx.putImageData(data,0,0);
-    return c;
+  function scoreIdCandidate(v){
+    v=cleanId(v);
+    if(!v) return -999;
+    let score=0;
+    if(v.length>=3 && v.length<=16) score+=8;
+    if(/[A-Za-z]/.test(v)) score+=3;
+    if(/[0-9]/.test(v)) score+=2;
+    if(/[_\-.]/.test(v)) score+=1;
+    if(v.length>16) score-=6;
+    if(/^[A-Za-z]+$/.test(v) && v.length>=11) score-=3;
+    if(/[_.-]{3,}/.test(v)) score-=5;
+    return score;
   }
 
-  function cleanIdLines(text){
-    return String(text||"").split(/\r?\n/)
-      .map(v=>cleanId(v).replace(/^[._-]+/,""))
-      .filter(v=>v.length>=3);
+  function bestIdFromText(text){
+    const candidates=String(text||"").split(/\s+/)
+      .map(cleanId)
+      .filter(v=>v.length>=3)
+      .sort((a,b)=>scoreIdCandidate(b)-scoreIdCandidate(a));
+    return candidates[0]||"";
+  }
+
+  async function recognizeIdRow(worker,img,y,rowIndex){
+    // Try three very small vertical offsets. This is much safer than reading
+    // the whole ID column and assuming OCR preserved all 14 line breaks.
+    const offsets=[0,-0.0017,0.0017];
+    let best={id:"",confidence:-1};
+    for(const off of offsets){
+      const c=cropCanvas(img,ID_X1,ID_X2,y+off,ROW_H*0.90,"id",rowIndex);
+      const res=await worker.recognize(c);
+      const id=bestIdFromText(res.data.text);
+      const confidence=Number(res.data.confidence||0);
+      const rank=scoreIdCandidate(id)+(confidence/25);
+      const bestRank=scoreIdCandidate(best.id)+(best.confidence/25);
+      if(rank>bestRank) best={id,confidence};
+    }
+    return best;
   }
 
   async function recognizeRows(){
@@ -387,36 +433,38 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
       idWorker=await Tesseract.createWorker("eng");
       await nameWorker.setParameters({tessedit_pageseg_mode:Tesseract.PSM.SINGLE_LINE});
       await idWorker.setParameters({
-        tessedit_pageseg_mode:Tesseract.PSM.SINGLE_BLOCK,
+        tessedit_pageseg_mode:Tesseract.PSM.SINGLE_LINE,
         tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-"
       });
 
-      setProgress(12,"オンラインID列をまとめて読み取っています…");
-      const idRes=await idWorker.recognize(cropIdColumn(image));
-      let ids=cleanIdLines(idRes.data.text);
-
-      // This scan intentionally excludes the first row (the local hunter), so 14 IDs are expected.
-      if(ids.length>14) ids=ids.slice(ids.length-14);
-      while(ids.length<14) ids.push("");
+      setProgress(12,"名前とオンラインIDを行ごとに読み取っています…");
 
       for(let j=0;j<14;j++){
         const rowIndex=j+1; // actual member-list row: 2..15
         const y=ROW_Y0+ROW_STEP*rowIndex;
-        const nameCanvas=cropCanvas(image,NAME_X1,NAME_X2,y,ROW_H,"name",rowIndex);
-        setProgress(18+(j/14)*74,`${j+1} / 14 人目の名前を読み取り中…`);
-        const nameRes=await nameWorker.recognize(nameCanvas);
+        const nameCanvas=cropCanvas(image,NAME_X1,NAME_X2,y,ROW_H*0.90,"name",rowIndex);
+        setProgress(14+(j/14)*80,`${j+1} / 14 人目を読み取り中…`);
+        const [nameRes,idRow]=await Promise.all([
+          nameWorker.recognize(nameCanvas),
+          recognizeIdRow(idWorker,image,y,rowIndex)
+        ]);
         let name=cleanText(nameRes.data.text);
-        let id=ids[j]||"";
+        let id=idRow.id||"";
         const existing=findExisting(name,id);
         if(existing){name=existing.hunter_name||name;id=existing.hunter_id||id;}
         const nameConfidence=Number(nameRes.data.confidence||0);
-        const needsReview=!existing&&(!id||nameConfidence<25);
+        const needsReview=!existing&&(
+          !id ||
+          nameConfidence<25 ||
+          idLooksSuspicious(id) ||
+          nameLooksSuspicious(name)
+        );
         rows.push({
           row:rowIndex+1,
           name,id,existing,nameConfidence,
-          idConfidence:Number(idRes.data.confidence||0),
+          idConfidence:Number(idRow.confidence||0),
           needsReview,
-          selected:!existing&&!needsReview&&Boolean(id||name)
+          selected:false
         });
       }
 
@@ -436,6 +484,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   function refreshMatches(){
     rows.forEach(r => {
       r.existing = findExisting(r.name,r.id);
+      recomputeReview(r);
       if(r.existing) r.selected = false;
     });
   }
@@ -463,7 +512,7 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
       item.dataset.row = String(r.row);
 
       item.innerHTML = `
-        <input type="checkbox" ${r.selected ? "checked" : ""} ${r.existing ? "disabled" : ""} aria-label="${r.row}行目を登録">
+        <input type="checkbox" ${r.selected ? "checked" : ""} ${(r.existing || r.needsReview) ? "disabled" : ""} aria-label="${r.row}行目を登録">
         <div class="field"><input class="name" value="${escapeHtml(r.name)}" placeholder="ハンター名"></div>
         <div class="field"><input class="hid" value="${escapeHtml(r.id)}" placeholder="オンラインID"></div>
         <div class="status"><span class="pill ${r.existing ? "good" : (r.needsReview ? "bad" : "warn")}">${r.existing ? "登録済み" : (r.needsReview ? "要確認" : "未登録")}</span></div>
@@ -474,11 +523,15 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
       const nameInput = item.querySelector(".name");
       const idInput = item.querySelector(".hid");
 
-      checkbox?.addEventListener("change",()=>{ r.selected=checkbox.checked; updateRegisterButton(); });
+      checkbox?.addEventListener("change",()=>{
+        r.selected = checkbox.checked && !r.needsReview;
+        checkbox.checked = r.selected;
+        updateRegisterButton();
+      });
       nameInput.addEventListener("input",()=>{ r.name=nameInput.value; });
       idInput.addEventListener("input",()=>{ r.id=idInput.value; });
-      nameInput.addEventListener("change",()=>{ r.existing=findExisting(r.name,r.id); renderRows(filter); });
-      idInput.addEventListener("change",()=>{ r.existing=findExisting(r.name,r.id); renderRows(filter); });
+      nameInput.addEventListener("change",()=>{ r.existing=findExisting(r.name,r.id); recomputeReview(r); renderRows(filter); });
+      idInput.addEventListener("change",()=>{ r.existing=findExisting(r.name,r.id); recomputeReview(r); renderRows(filter); });
 
       resultsEl.appendChild(item);
     });
@@ -540,7 +593,12 @@ input:focus,select:focus{border-color:rgba(34,231,255,.65);box-shadow:0 0 0 3px 
   $("showAllBtn").addEventListener("click",()=>renderRows("all"));
   $("showRegisteredBtn").addEventListener("click",()=>renderRows("registered"));
   $("selectNewBtn").addEventListener("click",()=>{
-    rows.forEach(r=>{if(!r.existing && (r.name||r.id))r.selected=true;});
+    rows.forEach(r=>{
+      recomputeReview(r);
+      if(!r.existing && !r.needsReview && (r.name||r.id)){
+        r.selected=true;
+      }
+    });
     renderRows("all");
   });
 
