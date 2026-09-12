@@ -1,0 +1,34 @@
+Iceborne Hunter Notes v21 - AI画像読み取り 初回設定
+
+この版はTesseractを使いません。
+Supabase Edge FunctionからOpenAIの画像認識を呼び出します。
+
+初回だけ必要:
+1. Supabase > Edge Functions で Function を作成
+   名前: read-hunters
+
+2. ZIP内の
+   supabase_edge_function_read-hunters.ts
+   の内容をFunctionへ貼り付けてDeploy
+
+3. Functionの Verify JWT をOFF
+   （このアプリはログインなしで使うため）
+
+4. SupabaseのEdge Function Secretsへ
+   OPENAI_API_KEY
+   を登録
+   ※ OpenAI APIのSecret keyをGitHub/index.html/scan.htmlへ書かない
+
+5. GitHub Pages側は
+   index.html
+   scan.html
+   changelog.html
+   sw.js
+   を上書き
+
+テスト:
+https://okitakenji.github.io/iceborne-hunter-notes/scan.html?v=21
+
+補足:
+- ChatGPT PlusとOpenAI APIの料金は別です。
+- OPENAI_MODELを設定しない場合は gpt-5.6-sol を使用します。
