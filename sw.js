@@ -1,4 +1,4 @@
-const CACHE = "hunter-notes-v18";
+const CACHE = "hunter-notes-v19";
 const STATIC_ASSETS = [
   "./manifest.webmanifest",
   "./icon-192.png",
