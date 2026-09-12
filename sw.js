@@ -1,8 +1,9 @@
-const CACHE = "hunter-notes-v4";
+const CACHE = "hunter-notes-v5";
 const STATIC_ASSETS = [
   "./manifest.webmanifest",
   "./icon-192.png",
-  "./icon-512.png"
+  "./icon-512.png",
+  "./changelog.html"
 ];
 
 self.addEventListener("install", event => {

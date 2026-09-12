@@ -824,6 +824,13 @@ button,.btn,.icon-btn{
       </div>
       <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;justify-content:flex-end">
         <div class="pill good" id="syncStatus">共有DB 接続中</div>
+      <a class="icon-btn" href="./changelog.html" aria-label="更新履歴を開く" style="text-decoration:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M6 3h9l3 3v15H6z"/>
+          <path d="M14 3v4h4M9 11h6M9 15h6"/>
+        </svg>
+        更新履歴
+      </a>
       <button type="button" class="icon-btn" id="openSettings" aria-label="設定を開く">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
           <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/>
@@ -899,7 +906,7 @@ button,.btn,.icon-btn{
             <button class="btn btn-primary" type="submit" id="saveBtn">登録する</button>
             <button class="btn" type="button" id="cancelEdit" hidden>編集をやめる</button>
           </div>
-          <p class="tiny">同じIDでも別レコードとして登録できます。登録内容は共有DBに保存され、ほかの利用者にも反映されます。</p>
+          <p class="tiny">同じIDでも別レコードとして登録できます。登録内容は共有DBに保存され、ほかの利用者にも反映されます。登録後は一覧の「編集」から修正できます。</p>
         </form>
       </section>
 
@@ -950,7 +957,7 @@ button,.btn,.icon-btn{
                 <th>状態</th>
                 <th>備考</th>
                 <th>登録日</th>
-                <th>共有</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody id="hunterRows"></tbody>
@@ -1156,6 +1163,23 @@ button,.btn,.icon-btn{
     return res.json().catch(()=>[]);
   }
 
+  async function updateHunterInCloud(dbId, payload){
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/hunters?id=eq.${encodeURIComponent(dbId)}`, {
+      method: "PATCH",
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+      },
+      body: JSON.stringify(payload)
+    });
+    if(!res.ok){
+      const msg = await res.text().catch(()=>"");
+      throw new Error(`HTTP ${res.status} ${msg}`);
+    }
+    return res.json().catch(()=>[]);
+  }
+
   function esc(s){
     return String(s ?? "").replace(/[&<>"']/g, m => ({
       "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
@@ -1206,7 +1230,11 @@ button,.btn,.icon-btn{
         <td><span class="pill ${statusClass(h.status)}">${esc(h.status)}</span></td>
         <td class="note">${esc(h.notes || "—")}</td>
         <td class="muted">${esc(h.createdDate || "")}</td>
-        <td><span class="pill">共有済み</span></td>`;
+        <td>
+          <div class="row-actions">
+            <button type="button" class="btn" data-action="edit" data-key="${esc(h.key)}">編集</button>
+          </div>
+        </td>`;
       rowsEl.appendChild(tr);
     }
   }
@@ -1228,30 +1256,63 @@ button,.btn,.icon-btn{
     const id = idEl.value.trim();
     if(!name || !id) return;
 
+    const editKey = editKeyEl.value.trim();
+    const isEditing = Boolean(editKey);
+
     saveBtn.disabled = true;
-    saveBtn.textContent = "共有DBへ登録中…";
-    setSyncStatus("warn","共有DB 登録中");
+    saveBtn.textContent = isEditing ? "共有DBを更新中…" : "共有DBへ登録中…";
+    setSyncStatus("warn", isEditing ? "共有DB 更新中" : "共有DB 登録中");
+
+    const payload = {
+      hunter_name: name,
+      hunter_id: id,
+      reporter: reporterEl.value.trim(),
+      rating: Number(ratingEl.value),
+      status: statusEl.value,
+      notes: notesEl.value.trim()
+    };
 
     try{
-      await insertHunterToCloud({
-        hunter_name: name,
-        hunter_id: id,
-        reporter: reporterEl.value.trim(),
-        rating: Number(ratingEl.value),
-        status: statusEl.value,
-        notes: notesEl.value.trim()
-      });
+      if(isEditing){
+        await updateHunterInCloud(editKey, payload);
+      }else{
+        await insertHunterToCloud(payload);
+      }
 
       resetForm();
       await loadHuntersFromCloud(true);
       setSyncStatus("good","共有DB 接続済み");
     }catch(err){
       console.error(err);
-      setSyncStatus("bad","登録エラー");
-      alert("共有DBへの登録に失敗しました。SupabaseのINSERTポリシーを確認してください。");
+      setSyncStatus("bad", isEditing ? "更新エラー" : "登録エラー");
+      alert(isEditing
+        ? "共有DBの更新に失敗しました。SupabaseのUPDATEポリシーを確認してください。"
+        : "共有DBへの登録に失敗しました。SupabaseのINSERTポリシーを確認してください。"
+      );
     }finally{
       saveBtn.disabled = false;
-      saveBtn.textContent = "登録する";
+      saveBtn.textContent = editKeyEl.value ? "更新する" : "登録する";
+    }
+  });
+
+  rowsEl.addEventListener("click", e => {
+    const btn = e.target.closest("button[data-action]");
+    if(!btn) return;
+    const h = hunters.find(x => x.key === btn.dataset.key);
+    if(!h) return;
+
+    if(btn.dataset.action === "edit"){
+      nameEl.value = h.name || "";
+      idEl.value = h.id || "";
+      reporterEl.value = h.reporter || "";
+      ratingEl.value = String(h.rating || 3);
+      statusEl.value = h.status || "普通";
+      notesEl.value = h.notes || "";
+      editKeyEl.value = String(h.dbId ?? h.key);
+      formTitle.textContent = "ハンター情報を編集";
+      saveBtn.textContent = "更新する";
+      cancelEdit.hidden = false;
+      window.scrollTo({top:0,behavior:"smooth"});
     }
   });
 

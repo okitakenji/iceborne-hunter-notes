@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#05070d">
+<title>更新履歴 - Iceborne Hunter Notes</title>
+<style>
+:root{--surface:rgba(7,12,22,.72);--line:rgba(101,220,255,.18);--text:#f4fbff;--muted:#91a8b7;--cyan:#22e7ff;--violet:#b46cff;--pink:#ff4fd8}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI","Yu Gothic UI","Meiryo",sans-serif;background:radial-gradient(circle at 15% 0%,rgba(34,231,255,.13),transparent 33%),radial-gradient(circle at 87% 8%,rgba(180,108,255,.12),transparent 31%),linear-gradient(180deg,#04060b,#07101a 55%,#04070c);padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+.wrap{max-width:920px;margin:0 auto;padding:24px max(16px,env(safe-area-inset-left)) 48px max(16px,env(safe-area-inset-right))}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:22px}
+.back{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border-radius:13px;border:1px solid var(--line);background:rgba(8,16,28,.72);color:var(--text);text-decoration:none}
+.brand{font-size:13px;color:var(--muted)}
+.hero,.entry{border:1px solid var(--line);background:var(--surface);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);box-shadow:0 24px 70px rgba(0,0,0,.42);position:relative;overflow:hidden}
+.hero{border-radius:24px;padding:24px;background:linear-gradient(135deg,rgba(34,231,255,.08),rgba(180,108,255,.055) 60%,rgba(255,79,216,.04)),var(--surface)}
+.hero::after,.entry::after{content:"";position:absolute;left:18px;right:18px;top:0;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),var(--violet),var(--pink),transparent);opacity:.55;filter:drop-shadow(0 0 6px var(--cyan))}
+.eyebrow{font-size:12px;letter-spacing:.16em;color:#79efff;text-transform:uppercase}h1{margin:10px 0 8px;font-size:clamp(30px,5vw,48px);letter-spacing:-.04em}.hero p{margin:0;color:var(--muted);line-height:1.7}
+.timeline{display:grid;gap:14px;margin-top:18px}.entry{border-radius:20px;padding:19px}.entry-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.version{display:inline-flex;align-items:center;padding:5px 9px;border-radius:999px;border:1px solid rgba(34,231,255,.22);color:#a5f5ff;background:rgba(34,231,255,.07);font-size:12px;font-weight:800}.date{font-size:12px;color:var(--muted)}
+.entry h2{margin:10px 0 8px;font-size:18px}.entry ul{margin:0;padding-left:20px;color:#d8e3ea;line-height:1.8}.note{margin-top:18px;font-size:12px;color:var(--muted)}
+@media(max-width:560px){.wrap{padding-top:14px}.hero,.entry{border-radius:18px}.hero{padding:20px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <a class="back" href="./index.html">← Hunter Notesへ戻る</a>
+    <div class="brand">Iceborne Hunter Notes</div>
+  </div>
+
+  <section class="hero">
+    <div class="eyebrow">Update History</div>
+    <h1>更新履歴</h1>
+    <p>Iceborne Hunter Notes の主な更新内容です。細かな修正はまとめて記載します。</p>
+  </section>
+
+  <section class="timeline">
+    <article class="entry">
+      <div class="entry-head"><div class="version">v1.1</div><div class="date">2026-09-12</div></div>
+      <h2>編集機能・更新履歴ページを追加</h2>
+      <ul>
+        <li>登録済みハンターの編集機能を追加</li>
+        <li>一覧から「編集」を押して登録内容を修正できるように変更</li>
+        <li>更新履歴専用ページを追加</li>
+        <li>メイン画面から「更新履歴」ボタンで別ページへ移動できるように変更</li>
+      </ul>
+    </article>
+
+    <article class="entry">
+      <div class="entry-head"><div class="version">v1.0</div><div class="date">初版</div></div>
+      <h2>Iceborne Hunter Notes 初版作成</h2>
+      <ul>
+        <li>ハンター名、ID、報告者名、民度評価、状態、備考の登録機能を実装</li>
+        <li>登録済みハンターの検索・絞り込み機能を実装</li>
+        <li>背景画像、ブラー、背景の暗さ設定を実装</li>
+        <li>iPhone向けPWA対応</li>
+        <li>GitHub Pagesで公開</li>
+        <li>Supabaseを利用した共有データベース対応</li>
+      </ul>
+    </article>
+  </section>
+  <div class="note">今後の更新もこのページへ追記していきます。</div>
+</div>
+</body>
+</html>
