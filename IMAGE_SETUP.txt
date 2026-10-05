@@ -1,0 +1,31 @@
+Iceborne Hunter Notes v22 - 思い出画像機能
+
+追加されたもの
+- ハンター名をタップすると、そのハンター専用の画像一覧ページへ移動
+- 画像一覧から選択した画像を大きく表示
+- 「添付した人」と添付日時を表示
+- 任意の思い出メモを表示
+- 複数画像をまとめて添付
+- iPhone側で最大2400px程度へ縮小してからアップロード
+
+初回だけ必要なSupabase設定
+1. Supabaseの Iceborne Hunter Notes プロジェクトを開く
+2. SQL Editor を開く
+3. ZIP内の SETUP_IMAGES.sql の全文を貼り付ける
+4. Run を押す
+
+そのあとGitHubへZIP内のファイルを上書きアップロードしてCommitしてください。
+
+追加ファイル:
+- hunter-images.html
+- SETUP_IMAGES.sql
+- IMAGE_SETUP.txt
+
+既存OCRはv20のままです。画像機能追加のためOCR方式は変更していません。
+
+
+v23追加変更:
+- 画像を縮小せずオリジナルファイルのままアップロード
+- 画像ページに「原寸で開く」を追加
+- 1枚30MBまで対応
+- すでにv22のSQLを実行済みでも、v23版の SETUP_IMAGES.sql をもう一度実行すれば設定が上書き更新されます。

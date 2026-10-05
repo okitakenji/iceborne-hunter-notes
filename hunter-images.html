@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#05070d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>思い出画像 - Iceborne Hunter Notes</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#05070d;
+  --surface:rgba(7,12,22,.67);
+  --surface2:rgba(5,10,18,.84);
+  --line:rgba(101,220,255,.16);
+  --line2:rgba(101,220,255,.34);
+  --text:#f4fbff;
+  --muted:#91a8b7;
+  --cyan:#22e7ff;
+  --violet:#b46cff;
+  --pink:#ff4fd8;
+  --good:#5fffc0;
+  --warn:#ffd36b;
+  --bad:#ff668f;
+}
+*{box-sizing:border-box}
+html{background:#0a0d12}
+body{
+  margin:0;
+  min-height:100vh;
+  color:var(--text);
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI","Yu Gothic UI","Meiryo",sans-serif;
+  background:
+    radial-gradient(circle at 15% 0%,rgba(34,231,255,.12),transparent 33%),
+    radial-gradient(circle at 87% 8%,rgba(180,108,255,.12),transparent 31%),
+    radial-gradient(circle at 55% 100%,rgba(255,79,216,.07),transparent 30%),
+    linear-gradient(180deg,#04060b,#07101a 55%,#04070c);
+  padding-top:env(safe-area-inset-top);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+button,input,textarea{font:inherit}
+button{cursor:pointer}
+#bgLayer{
+  position:fixed;inset:-50px;z-index:0;background-position:center;background-size:cover;background-repeat:no-repeat;
+  filter:blur(0px);transform:scale(1.05);pointer-events:none
+}
+#bgShade{position:fixed;inset:0;z-index:1;background:rgba(5,8,12,.58);pointer-events:none}
+.app{position:relative;z-index:3;max-width:1180px;margin:0 auto;padding:18px max(14px,env(safe-area-inset-left)) 48px max(14px,env(safe-area-inset-right))}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.back,.btn{
+  min-height:42px;border:1px solid var(--line);background:rgba(8,16,28,.82);color:var(--text);border-radius:13px;
+  padding:0 14px;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;transition:.16s ease
+}
+.back:hover,.btn:hover{border-color:var(--line2);background:rgba(18,34,54,.94);transform:translateY(-1px)}
+.btn-primary{
+  background:linear-gradient(135deg,#0bc7ea,#7e62f6 58%,#e74cc4);
+  border-color:rgba(91,235,255,.35);color:white;box-shadow:0 0 18px rgba(34,231,255,.16)
+}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.badge{
+  min-height:30px;padding:0 10px;border-radius:999px;border:1px solid var(--line);display:inline-flex;align-items:center;
+  color:#b9cbd6;background:rgba(255,255,255,.04);font-size:12px;font-weight:800
+}
+.badge.good{color:#b8f0d4;background:rgba(95,255,192,.08);border-color:rgba(95,255,192,.2)}
+.badge.warn{color:#ffe0a9;background:rgba(255,211,107,.08);border-color:rgba(255,211,107,.2)}
+.badge.bad{color:#ffc5d1;background:rgba(255,102,143,.08);border-color:rgba(255,102,143,.2)}
+.panel,.hero{
+  position:relative;overflow:hidden;border:1px solid var(--line);background:var(--surface);
+  backdrop-filter:blur(24px) saturate(1.15);-webkit-backdrop-filter:blur(24px) saturate(1.15);
+  box-shadow:0 24px 70px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.035)
+}
+.panel::after,.hero::after{
+  content:"";position:absolute;left:18px;right:18px;top:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--cyan),var(--violet),var(--pink),transparent);opacity:.48
+}
+.hero{border-radius:24px;padding:22px;margin-bottom:14px;background:linear-gradient(135deg,rgba(34,231,255,.07),rgba(180,108,255,.055) 62%,rgba(255,79,216,.035)),var(--surface)}
+.eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#83efff}
+h1{margin:8px 0 6px;font-size:clamp(28px,5vw,44px);letter-spacing:-.04em;line-height:1.05}
+.hunter-id{color:var(--muted);font-size:13px}
+.hero-bottom{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:14px}
+.hero-note{font-size:12px;color:var(--muted);max-width:720px;line-height:1.6}
+.grid{display:grid;grid-template-columns:minmax(0,1.42fr) minmax(300px,.58fr);gap:14px}
+.panel{border-radius:21px;padding:17px}
+.panel-title{margin:0;font-size:16px;font-weight:850}
+.panel-sub{margin-top:4px;color:var(--muted);font-size:12px}
+.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:13px}
+.viewer-empty{
+  min-height:360px;border:1px dashed rgba(101,220,255,.18);border-radius:16px;display:grid;place-items:center;
+  color:var(--muted);background:rgba(2,7,13,.45);text-align:center;padding:20px
+}
+.viewer{display:none}
+.viewer.active{display:block}
+.viewer-frame{
+  width:100%;min-height:340px;max-height:66vh;border-radius:16px;overflow:hidden;background:#02050a;
+  border:1px solid rgba(255,255,255,.08);display:grid;place-items:center
+}
+.viewer-frame img{display:block;max-width:100%;max-height:66vh;width:auto;height:auto;object-fit:contain}
+.viewer-frame a{display:grid;place-items:center;width:100%;height:100%;text-decoration:none}
+.viewer-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.viewer-link-note{font-size:11px;color:var(--muted)}
+.viewer-meta{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-top:11px}
+.viewer-who{font-size:13px;font-weight:800}
+.viewer-date{font-size:11px;color:var(--muted)}
+.viewer-caption{margin-top:8px;color:#d6e1e8;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6}
+.gallery{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px
+}
+.thumb{
+  border:1px solid rgba(255,255,255,.08);background:rgba(3,8,15,.54);border-radius:14px;overflow:hidden;
+  padding:0;text-align:left;color:var(--text);transition:.16s ease
+}
+.thumb:hover{border-color:rgba(34,231,255,.36);transform:translateY(-1px)}
+.thumb.active{border-color:rgba(34,231,255,.78);box-shadow:0 0 0 1px rgba(34,231,255,.22),0 0 18px rgba(34,231,255,.12)}
+.thumb img{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;background:#02050a}
+.thumb-info{padding:8px}
+.thumb-who{font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thumb-date{font-size:10px;color:var(--muted);margin-top:3px}
+.empty{
+  grid-column:1/-1;border:1px dashed rgba(101,220,255,.18);border-radius:14px;padding:28px 18px;text-align:center;color:var(--muted)
+}
+label{display:block;margin:12px 0 7px;font-size:12px;color:#c8d1dc;font-weight:800}
+input,textarea{
+  width:100%;color:var(--text);background:rgba(4,10,18,.78);border:1px solid rgba(255,255,255,.10);
+  border-radius:12px;padding:11px 12px;outline:none
+}
+input:focus,textarea:focus{border-color:rgba(34,231,255,.45);box-shadow:0 0 0 3px rgba(34,231,255,.07)}
+textarea{min-height:82px;resize:vertical}
+.upload-box{
+  border:1px solid rgba(34,231,255,.11);border-radius:15px;padding:13px;background:rgba(34,231,255,.035)
+}
+.file-hint{font-size:11px;color:var(--muted);line-height:1.55;margin-top:7px}
+.upload-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:13px}
+.progress{font-size:12px;color:#a8c0ce}
+.notice{
+  margin-bottom:14px;border:1px solid rgba(255,211,107,.22);background:rgba(255,211,107,.07);
+  color:#f8deb0;border-radius:14px;padding:12px 13px;font-size:12px;line-height:1.55
+}
+.hidden{display:none!important}
+@media(max-width:900px){.grid{grid-template-columns:1fr}.gallery{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:650px){
+  .app{padding-top:12px}.hero,.panel{border-radius:18px}.hero{padding:18px}
+  .gallery{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .viewer-frame{min-height:230px;max-height:56vh}.viewer-frame img{max-height:56vh}
+}
+</style>
+</head>
+<body>
+<div id="bgLayer"></div><div id="bgShade"></div>
+
+<div class="app">
+  <div class="topbar">
+    <a class="back" href="./index.html?v=23">← Hunter Notesへ戻る</a>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="badge">画像アルバム v23</span>
+      <span class="badge warn" id="syncBadge">共有DB 接続中</span>
+    </div>
+  </div>
+
+  <section class="hero">
+    <div class="eyebrow">Hunter Memories</div>
+    <h1 id="hunterName">読み込み中…</h1>
+    <div class="hunter-id" id="hunterId"></div>
+    <div class="hero-bottom">
+      <div class="hero-note">このハンターとの思い出画像をまとめるページ。下の一覧から画像を選ぶと、大きく表示されます。</div>
+      <div class="badge" id="photoCount">0枚</div>
+    </div>
+  </section>
+
+  <div id="setupNotice" class="notice hidden">
+    画像機能の初期設定がまだ完了していない可能性があります。ZIP内の <strong>SETUP_IMAGES.sql</strong> をSupabaseのSQL Editorで1回実行してください。
+  </div>
+
+  <main class="grid">
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title">画像を見る</h2>
+          <div class="panel-sub">下の画像一覧から選ぶと、ここに大きく表示</div>
+        </div>
+      </div>
+
+      <div class="viewer-empty" id="viewerEmpty">まだ画像がありません。<br>右の「画像を添付」から追加できます。</div>
+
+      <div class="viewer" id="viewer">
+        <div class="viewer-frame">
+          <a id="viewerImageLink" href="#" target="_blank" rel="noopener noreferrer" aria-label="原寸画像を開く">
+            <img id="viewerImage" alt="選択した思い出画像">
+          </a>
+        </div>
+        <div class="viewer-meta">
+          <div>
+            <div class="viewer-who" id="viewerWho"></div>
+            <div class="viewer-date" id="viewerDate"></div>
+          </div>
+        </div>
+        <div class="viewer-actions">
+          <a class="btn" id="openOriginalBtn" href="#" target="_blank" rel="noopener noreferrer">原寸で開く</a>
+          <div class="viewer-link-note">大きい表示の画像をタップしても原寸画像を開けます。</div>
+        </div>
+        <div class="viewer-caption" id="viewerCaption"></div>
+      </div>
+
+      <div class="panel-head" style="margin-top:18px">
+        <div>
+          <h2 class="panel-title">画像一覧</h2>
+          <div class="panel-sub">タップして大きく表示</div>
+        </div>
+      </div>
+      <div class="gallery" id="gallery">
+        <div class="empty">画像を読み込み中…</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title">画像を添付</h2>
+          <div class="panel-sub">複数枚まとめて追加できます</div>
+        </div>
+      </div>
+
+      <div class="upload-box">
+        <label for="uploader">添付した人 *</label>
+        <input id="uploader" maxlength="40" placeholder="例：沖田">
+
+        <label for="caption">ひとこと・思い出メモ</label>
+        <textarea id="caption" maxlength="200" placeholder="例：救難で一緒になったときのスクショ"></textarea>
+
+        <label for="imageFiles">画像 *</label>
+        <input id="imageFiles" type="file" accept="image/*" multiple>
+        <div class="file-hint">
+          画像は縮小せず、元のファイルのままアップロードします。大きく表示した後、「原寸で開く」からオリジナルサイズで確認できます。1枚30MBまで対応。
+        </div>
+
+        <div class="upload-actions">
+          <button type="button" class="btn btn-primary" id="uploadBtn">画像を添付する</button>
+          <span class="progress" id="uploadProgress"></span>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+(() => {
+  const SUPABASE_URL = "https://cxksmeunzabvjeneuvol.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_Z7djJbpsYnLONLHpywTyhA_U6_sSnuN";
+  const BUCKET = "hunter-images";
+  const BG_DB_NAME = "iceborneHunterNotesAssets";
+  const BG_DB_STORE = "assets";
+  const BG_DB_KEY = "background";
+  const BG_BLUR_KEY = "iceborneHunterNotes_bgBlur_v1";
+  const BG_DARKNESS_KEY = "iceborneHunterNotes_bgDarkness_v1";
+  const UPLOADER_KEY = "iceborneHunterNotes_lastPhotoUploader_v1";
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession:false, autoRefreshToken:false, detectSessionInUrl:false }
+  });
+
+  const $ = id => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  const recordId = params.get("record");
+
+  const hunterName = $("hunterName");
+  const hunterId = $("hunterId");
+  const syncBadge = $("syncBadge");
+  const setupNotice = $("setupNotice");
+  const photoCount = $("photoCount");
+  const gallery = $("gallery");
+  const viewer = $("viewer");
+  const viewerEmpty = $("viewerEmpty");
+  const viewerImage = $("viewerImage");
+  const viewerImageLink = $("viewerImageLink");
+  const openOriginalBtn = $("openOriginalBtn");
+  const viewerWho = $("viewerWho");
+  const viewerDate = $("viewerDate");
+  const viewerCaption = $("viewerCaption");
+  const uploader = $("uploader");
+  const caption = $("caption");
+  const imageFiles = $("imageFiles");
+  const uploadBtn = $("uploadBtn");
+  const uploadProgress = $("uploadProgress");
+
+  let hunter = null;
+  let photos = [];
+  let selectedPhotoId = null;
+
+  function setBadge(state,text){
+    syncBadge.textContent=text;
+    syncBadge.classList.remove("good","warn","bad");
+    if(state) syncBadge.classList.add(state);
+  }
+
+  function fmtDate(value){
+    if(!value) return "";
+    try{
+      return new Intl.DateTimeFormat("ja-JP",{
+        year:"numeric",month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"
+      }).format(new Date(value));
+    }catch{
+      return String(value);
+    }
+  }
+
+  function publicUrl(path){
+    return sb.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+  }
+
+  function showSetupHint(err){
+    const text = String(err?.message || err || "");
+    if(/hunter_images|relation|bucket|not found|404|policy|row-level security/i.test(text)){
+      setupNotice.classList.remove("hidden");
+    }
+  }
+
+  async function loadHunter(){
+    if(!recordId || !/^\d+$/.test(recordId)){
+      hunterName.textContent="ハンターが指定されていません";
+      hunterId.textContent="Hunter Notesの一覧からハンター名をタップしてください。";
+      setBadge("bad","読み込みエラー");
+      uploadBtn.disabled=true;
+      return false;
+    }
+
+    const {data,error} = await sb
+      .from("hunters")
+      .select("id,hunter_name,hunter_id,reporter")
+      .eq("id", Number(recordId))
+      .maybeSingle();
+
+    if(error) throw error;
+    if(!data){
+      hunterName.textContent="ハンターが見つかりません";
+      hunterId.textContent=`record: ${recordId}`;
+      setBadge("bad","データなし");
+      uploadBtn.disabled=true;
+      return false;
+    }
+
+    hunter=data;
+    hunterName.textContent=data.hunter_name || "名前なし";
+    hunterId.textContent=data.hunter_id ? `ID：${data.hunter_id}` : "";
+    document.title=`${data.hunter_name || "Hunter"} の思い出画像 - Iceborne Hunter Notes`;
+
+    const saved = localStorage.getItem(UPLOADER_KEY) || "";
+    uploader.value = saved || data.reporter || "";
+    return true;
+  }
+
+  async function loadPhotos(selectNewest=false){
+    const {data,error} = await sb
+      .from("hunter_images")
+      .select("id,hunter_record_id,storage_path,uploaded_by,caption,created_at")
+      .eq("hunter_record_id", Number(recordId))
+      .order("created_at",{ascending:false});
+
+    if(error){
+      showSetupHint(error);
+      throw error;
+    }
+
+    photos = (data || []).map(p => ({...p,url:publicUrl(p.storage_path)}));
+    photoCount.textContent=`${photos.length}枚`;
+    renderGallery();
+
+    if(!photos.length){
+      selectedPhotoId=null;
+      renderViewer(null);
+      return;
+    }
+
+    let selected = photos.find(p => String(p.id) === String(selectedPhotoId));
+    if(!selected || selectNewest) selected=photos[0];
+    selectedPhotoId=selected.id;
+    renderViewer(selected);
+    renderGallery();
+  }
+
+  function renderGallery(){
+    gallery.innerHTML="";
+    if(!photos.length){
+      gallery.innerHTML='<div class="empty">まだ画像がありません。</div>';
+      return;
+    }
+
+    for(const p of photos){
+      const btn=document.createElement("button");
+      btn.type="button";
+      btn.className=`thumb ${String(p.id)===String(selectedPhotoId) ? "active" : ""}`;
+      btn.setAttribute("aria-label",`${p.uploaded_by || "不明"}さんが添付した画像を見る`);
+
+      const img=document.createElement("img");
+      img.src=p.url;
+      img.alt=`${hunter?.hunter_name || "ハンター"}の思い出画像`;
+      img.loading="lazy";
+
+      const info=document.createElement("div");
+      info.className="thumb-info";
+
+      const who=document.createElement("div");
+      who.className="thumb-who";
+      who.textContent=`添付：${p.uploaded_by || "不明"}`;
+
+      const date=document.createElement("div");
+      date.className="thumb-date";
+      date.textContent=fmtDate(p.created_at);
+
+      info.append(who,date);
+      btn.append(img,info);
+
+      btn.addEventListener("click",()=>{
+        selectedPhotoId=p.id;
+        renderViewer(p);
+        renderGallery();
+      });
+
+      gallery.appendChild(btn);
+    }
+  }
+
+  function renderViewer(p){
+    if(!p){
+      viewer.classList.remove("active");
+      viewerEmpty.classList.remove("hidden");
+      viewerEmpty.innerHTML='まだ画像がありません。<br>右の「画像を添付」から追加できます。';
+      viewerImage.removeAttribute("src");
+      viewerImageLink.href="#";
+      openOriginalBtn.href="#";
+      return;
+    }
+
+    viewerEmpty.classList.add("hidden");
+    viewer.classList.add("active");
+    viewerImage.src=p.url;
+    viewerImageLink.href=p.url;
+    openOriginalBtn.href=p.url;
+    viewerWho.textContent=`添付した人：${p.uploaded_by || "不明"}`;
+    viewerDate.textContent=fmtDate(p.created_at);
+    viewerCaption.textContent=p.caption || "";
+  }
+
+  function extensionFromFile(file){
+    const fromName = String(file.name || "").split(".").pop();
+    if(fromName && fromName !== file.name) return fromName.toLowerCase();
+    const type = String(file.type || "").toLowerCase();
+    const map = {
+      "image/jpeg":"jpg",
+      "image/jpg":"jpg",
+      "image/png":"png",
+      "image/webp":"webp",
+      "image/heic":"heic",
+      "image/heif":"heif",
+      "image/gif":"gif"
+    };
+    return map[type] || "jpg";
+  }
+
+  function validateOriginalFile(file){
+    if(!file.type.startsWith("image/")){
+      throw new Error(`${file.name} は画像ファイルではありません`);
+    }
+    if(file.size > 30 * 1024 * 1024){
+      throw new Error(`${file.name} は30MBを超えています`);
+    }
+    return file;
+  }
+
+  function makeFileName(ext){
+    const random = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return `${Date.now()}-${random}.${ext}`;
+  }
+
+  async function uploadOne(file, uploadedBy, note, index, total){
+    uploadProgress.textContent=`${index}/${total} 原寸画像を確認中…`;
+    const originalFile=validateOriginalFile(file);
+    const ext=extensionFromFile(originalFile);
+    const path=`${recordId}/${makeFileName(ext)}`;
+
+    uploadProgress.textContent=`${index}/${total} 原寸画像をアップロード中…`;
+    const {error:uploadError}=await sb.storage
+      .from(BUCKET)
+      .upload(path,originalFile,{
+        contentType:originalFile.type || `image/${ext}`,
+        cacheControl:"31536000",
+        upsert:false
+      });
+
+    if(uploadError){
+      showSetupHint(uploadError);
+      throw uploadError;
+    }
+
+    uploadProgress.textContent=`${index}/${total} 情報を保存中…`;
+    const {error:metaError}=await sb
+      .from("hunter_images")
+      .insert({
+        hunter_record_id:Number(recordId),
+        storage_path:path,
+        uploaded_by:uploadedBy,
+        caption:note
+      });
+
+    if(metaError){
+      showSetupHint(metaError);
+      throw metaError;
+    }
+  }
+
+  uploadBtn.addEventListener("click",async()=>{
+    if(!hunter) return;
+
+    const uploadedBy=uploader.value.trim();
+    const files=[...(imageFiles.files || [])];
+    const note=caption.value.trim();
+
+    if(!uploadedBy){
+      alert("「添付した人」を入力してください。");
+      uploader.focus();
+      return;
+    }
+    if(!files.length){
+      alert("添付する画像を選んでください。");
+      return;
+    }
+    if(files.length>12){
+      alert("一度に添付できる画像は12枚までです。");
+      return;
+    }
+
+    localStorage.setItem(UPLOADER_KEY,uploadedBy);
+    uploadBtn.disabled=true;
+    imageFiles.disabled=true;
+    uploader.disabled=true;
+    caption.disabled=true;
+    setBadge("warn","画像アップロード中");
+
+    try{
+      for(let i=0;i<files.length;i++){
+        await uploadOne(files[i],uploadedBy,note,i+1,files.length);
+      }
+
+      imageFiles.value="";
+      caption.value="";
+      uploadProgress.textContent=`${files.length}枚 添付しました`;
+      await loadPhotos(true);
+      setBadge("good","共有DB 接続済み");
+    }catch(err){
+      console.error(err);
+      uploadProgress.textContent="アップロードに失敗しました";
+      setBadge("bad","画像アップロードエラー");
+      alert(`画像の添付に失敗しました。\n${err?.message || err}`);
+    }finally{
+      uploadBtn.disabled=false;
+      imageFiles.disabled=false;
+      uploader.disabled=false;
+      caption.disabled=false;
+    }
+  });
+
+  function openAssetDB(){
+    return new Promise((resolve,reject)=>{
+      const req=indexedDB.open(BG_DB_NAME,1);
+      req.onupgradeneeded=()=>{
+        const db=req.result;
+        if(!db.objectStoreNames.contains(BG_DB_STORE)) db.createObjectStore(BG_DB_STORE);
+      };
+      req.onsuccess=()=>resolve(req.result);
+      req.onerror=()=>reject(req.error);
+    });
+  }
+
+  async function loadBackground(){
+    try{
+      const db=await openAssetDB();
+      const blob=await new Promise((resolve,reject)=>{
+        const tx=db.transaction(BG_DB_STORE,"readonly");
+        const req=tx.objectStore(BG_DB_STORE).get(BG_DB_KEY);
+        req.onsuccess=()=>resolve(req.result || null);
+        req.onerror=()=>reject(req.error);
+      });
+      db.close();
+
+      if(blob){
+        const url=URL.createObjectURL(blob);
+        $("bgLayer").style.backgroundImage=`url("${url}")`;
+      }
+
+      const blur=Math.max(0,Math.min(30,Number(localStorage.getItem(BG_BLUR_KEY) || 0)));
+      const dark=Math.max(0,Math.min(85,Number(localStorage.getItem(BG_DARKNESS_KEY) || 58)));
+      $("bgLayer").style.filter=`blur(${blur}px)`;
+      $("bgShade").style.background=`rgba(5,8,12,${dark/100})`;
+    }catch{}
+  }
+
+  async function init(){
+    await loadBackground();
+    try{
+      const ok=await loadHunter();
+      if(!ok) return;
+      await loadPhotos();
+      setBadge("good","共有DB 接続済み");
+    }catch(err){
+      console.error(err);
+      showSetupHint(err);
+      setBadge("bad","共有DB 接続エラー");
+      gallery.innerHTML='<div class="empty">画像一覧を読み込めませんでした。</div>';
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
